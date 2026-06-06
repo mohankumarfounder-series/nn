@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
 ╔══════════════════════════════════════════════════════════════════╗
-║          நிதி நீதி தமிழ் — FULLY AUTOMATED BOT v1.1            ║
+║          நிதி நீதி தமிழ் — FULLY AUTOMATED BOT v1.2            ║
 ║  Tamil Finance & Legal Rights YouTube Channel                   ║
-║  2-min videos · English subtitles · Male+Female voices          ║
+║  Playlists · SEO chapters · Character overlay · v1.2           ║
 ║  Auto topic · Pexels visuals · YouTube upload · Daily 6AM IST  ║
 ╚══════════════════════════════════════════════════════════════════╝
 
@@ -309,24 +309,54 @@ Topic: {topic}
 Format: {format_type}
 Hook: {hook_angle}
 
-Return ONLY valid JSON:
+Return ONLY valid JSON, no markdown:
 {{
-  "title": "<Tamil title — clickable, under 60 chars, include number if natural>",
-  "description": "<SEO description 2000 chars — Tamil + English keywords, benefits list, disclaimer, subscribe CTA, hashtags>",
-  "tags": "<25 comma-separated tags — Tamil + English mix>",
-  "pinned_comment": "<Tamil pinned comment under 300 chars — ask viewers their experience + subscribe>",
-  "thumbnail_concept": "<Detailed thumbnail description: background color, main text in Tamil, person/object, emotion, contrast elements>"
+  "title": "<SEO-optimized title — see rules below>",
+  "description": "<Full description — see rules below>",
+  "tags": "<30 comma-separated tags — see rules below>",
+  "pinned_comment": "<Tamil pinned comment — see rules below>",
+  "thumbnail_concept": "<Thumbnail description — see rules below>"
 }}
 
-Title examples:
-- "UPI Fraud ஆனால் பணம் திரும்ப வருமா? | நிதி நீதி தமிழ்"
-- "CIBIL Score 750+ பெற இந்த 5 வழிகள் மட்டும் போதும்"
-- "Credit Card Minimum Pay — இந்த தவறு உங்களை திவாலாக்கும்"
+TITLE RULES (critical for SEO):
+- Under 60 characters
+- Format: [Tamil hook question or statement] | [English keyword] | நிதி நீதி தமிழ்
+- Use question format when possible (gets YouTube rich snippets): "CIBIL Score கீழே போனால் என்ன நடக்கும்? | CIBIL Drop Explained | நிதி நீதி தமிழ்"
+- Include the most-searched keyword naturally
+- Never start with channel name
 
-Description must include:
-- Disclaimer: "இந்த video educational purpose மட்டுமே. Financial advice இல்லை."
-- Subscribe CTA in Tamil
-- Hashtags: #நிதிநீதிதமிழ் #NidhiNeethiTamil #TamilFinance #TamilLegalRights #PersonalFinanceTamil
+DESCRIPTION RULES (first 2 lines = SEO snippet — most important):
+Line 1: Tamil hook that matches the video's first 5 seconds (same urgency)
+Line 2: English keyword sentence: "Learn how to [topic in English] | Tamil Finance Guide"
+Then:
+- Chapter timestamps (MANDATORY — YouTube shows these in search):
+  0:00 Introduction
+  0:15 [Beat 1 — hook topic in Tamil]
+  0:45 [Beat 2 — core info topic in Tamil]
+  1:30 [Beat 3 — action step in Tamil]
+  1:50 Subscribe & Share
+- 5 key points viewers will learn (Tamil)
+- Disclaimer: "⚠️ இந்த video educational purpose மட்டுமே. Financial advice இல்லை. உங்கள் நிதி முடிவுகளுக்கு certified advisor-ஐ consult செய்யுங்கள்."
+- Subscribe CTA: "🔔 Subscribe பண்ணுங்கள்: @NidhiNeethiTamil"
+- Hashtags: #நிதிநீதிதமிழ் #NidhiNeethiTamil #TamilFinance #TamilLegalRights #PersonalFinanceTamil #[topic-specific hashtag]
+
+TAGS RULES (30 tags, ordered by volume):
+- 5 high-volume: "tamil finance", "personal finance tamil", "cibil score tamil", "tamil money tips", "tamil investment"
+- 10 medium: topic-specific Tamil terms
+- 10 long-tail: specific question phrases people search
+- 5 English: broader reach terms
+
+PINNED COMMENT:
+- Ask viewers a specific question related to the topic
+- Example: "உங்கள் CIBIL score எவ்வளவு? Comment பண்ணுங்கள் 👇"
+- End with: நிதி நீதி தமிழ்-ஐ subscribe பண்ணி bell icon click பண்ணுங்கள் 🔔
+
+THUMBNAIL CONCEPT:
+- Background: deep blue (#0A1E3C) or urgent red (#B01020)
+- Large bold Tamil text (main hook) — left 60% of image
+- Right 40%: visual element (rupee symbol, court scale, phone with alert etc)
+- Small channel logo bottom-right
+- High contrast — readable at 120px thumbnail size
 """
 
 THUMBNAIL_PROMPT = """Create a detailed AI image generation prompt for a YouTube thumbnail.
@@ -712,6 +742,194 @@ def build_text_overlay(title_short, format_type):
     return ",".join(overlays)
 
 
+
+# ═══════════════════════════════════════════════════════════════
+# CHARACTER OVERLAY — consistent branded explainer character
+# ═══════════════════════════════════════════════════════════════
+
+CHARACTER_DIR = "assets/character"
+
+# Which pose to use at each beat timestamp
+# Beat 1 (0-15s): hook   → warning or explaining depending on format
+# Beat 2 (15-75s): core  → explaining
+# Beat 3 (75-100s): action → celebrating
+# Beat 4 (100-120s): CTA  → neutral with wave
+
+POSE_BY_FORMAT_AND_BEAT = {
+    "warning":    ["warning",    "warning",    "explaining",  "neutral"],
+    "explainer":  ["explaining", "explaining", "celebrating", "neutral"],
+    "rights":     ["warning",    "explaining", "celebrating", "neutral"],
+    "comparison": ["explaining", "explaining", "celebrating", "neutral"],
+    "story":      ["neutral",    "explaining", "celebrating", "neutral"],
+    "news":       ["explaining", "explaining", "neutral",     "neutral"],
+    "default":    ["explaining", "explaining", "celebrating", "neutral"],
+}
+
+
+def ensure_character_assets():
+    """Generate character PNGs if they don't exist."""
+    poses = ["neutral", "explaining", "warning", "celebrating"]
+    missing = [p for p in poses
+               if not os.path.exists(f"{CHARACTER_DIR}/{p}.png")]
+    if not missing:
+        return True
+
+    log(f"🎨 Generating character assets: {missing}...")
+    try:
+        from PIL import Image, ImageDraw
+        os.makedirs(CHARACTER_DIR, exist_ok=True)
+
+        def draw_character(pose):
+            img = Image.new("RGBA", (200, 280), (0, 0, 0, 0))
+            d = ImageDraw.Draw(img)
+            SKIN = (210,160,110,255); HAIR = (30,20,15,255)
+            SHIRT = (25,80,160,255); SHIRT_LT = (40,100,190,255)
+            PANT = (40,50,70,255); WHITE = (240,240,240,255)
+            OUTLINE = (20,20,30,255); LIP = (180,80,70,255)
+            CHEEK = (220,150,110,200)
+
+            d.rectangle([72,175,128,260], fill=PANT, outline=OUTLINE, width=1)
+            d.rectangle([55,120,145,185], fill=SHIRT, outline=OUTLINE, width=1)
+            d.polygon([100,120,85,135,100,130,115,135], fill=WHITE, outline=OUTLINE)
+
+            if pose == "neutral":
+                d.ellipse([38,120,65,175], fill=SHIRT_LT, outline=OUTLINE, width=1)
+                d.ellipse([135,120,162,175], fill=SHIRT_LT, outline=OUTLINE, width=1)
+                d.ellipse([38,160,60,185], fill=SKIN, outline=OUTLINE, width=1)
+                d.ellipse([140,160,162,185], fill=SKIN, outline=OUTLINE, width=1)
+            elif pose == "explaining":
+                d.ellipse([38,120,65,175], fill=SHIRT_LT, outline=OUTLINE, width=1)
+                d.ellipse([38,160,60,185], fill=SKIN, outline=OUTLINE, width=1)
+                d.ellipse([135,70,162,130], fill=SHIRT_LT, outline=OUTLINE, width=1)
+                d.ellipse([140,55,162,80], fill=SKIN, outline=OUTLINE, width=1)
+                d.ellipse([145,42,158,62], fill=SKIN, outline=OUTLINE, width=1)
+                d.ellipse([148,30,156,50], fill=SKIN, outline=OUTLINE, width=1)
+            elif pose == "warning":
+                d.ellipse([20,85,55,140], fill=SHIRT_LT, outline=OUTLINE, width=1)
+                d.ellipse([145,85,180,140], fill=SHIRT_LT, outline=OUTLINE, width=1)
+                d.ellipse([15,70,55,100], fill=SKIN, outline=OUTLINE, width=1)
+                d.ellipse([145,70,185,100], fill=SKIN, outline=OUTLINE, width=1)
+            elif pose == "celebrating":
+                d.ellipse([20,60,65,120], fill=SHIRT_LT, outline=OUTLINE, width=1)
+                d.ellipse([135,60,180,120], fill=SHIRT_LT, outline=OUTLINE, width=1)
+                d.ellipse([15,40,55,75], fill=SKIN, outline=OUTLINE, width=1)
+                d.ellipse([145,40,185,75], fill=SKIN, outline=OUTLINE, width=1)
+
+            d.rectangle([88,105,112,125], fill=SKIN, outline=OUTLINE, width=1)
+            d.ellipse([68,45,132,115], fill=SKIN, outline=OUTLINE, width=2)
+            d.ellipse([68,44,132,90], fill=HAIR)
+            d.rectangle([68,44,100,75], fill=HAIR)
+            d.ellipse([115,48,140,75], fill=HAIR)
+            d.line([78,68,90,65], fill=HAIR, width=2)
+            d.line([110,65,122,68], fill=HAIR, width=2)
+
+            if pose == "warning":
+                d.line([78,64,92,68], fill=HAIR, width=2)
+                d.line([108,68,122,64], fill=HAIR, width=2)
+
+            d.ellipse([78,72,92,82], fill=WHITE, outline=OUTLINE, width=1)
+            d.ellipse([108,72,122,82], fill=WHITE, outline=OUTLINE, width=1)
+            d.ellipse([83,74,89,80], fill=HAIR)
+            d.ellipse([113,74,119,80], fill=HAIR)
+            d.ellipse([85,75,87,77], fill=WHITE)
+            d.ellipse([115,75,117,77], fill=WHITE)
+            d.ellipse([72,83,84,93], fill=CHEEK)
+            d.ellipse([116,83,128,93], fill=CHEEK)
+            d.ellipse([96,82,104,90], fill=(195,140,95,200))
+
+            if pose == "celebrating":
+                d.arc([85,88,115,105], start=0, end=180, fill=LIP, width=2)
+                d.arc([78,72,92,85], start=0, end=180, fill=OUTLINE, width=2)
+                d.arc([108,72,122,85], start=0, end=180, fill=OUTLINE, width=2)
+            elif pose == "warning":
+                d.line([88,95,112,95], fill=LIP, width=2)
+            elif pose == "explaining":
+                d.arc([88,90,112,103], start=0, end=180, fill=LIP, width=2)
+            else:
+                d.arc([90,90,110,102], start=0, end=180, fill=LIP, width=2)
+
+            return img
+
+        for pose in missing:
+            img = draw_character(pose)
+            img.save(f"{CHARACTER_DIR}/{pose}.png")
+            log(f"  ✅ {pose}.png")
+        return True
+    except Exception as e:
+        log(f"  ⚠️ Character generation failed: {e}")
+        return False
+
+
+def overlay_character_on_video(video_in, video_out, format_type, total_dur):
+    """
+    Overlay character at bottom-right of video.
+    Character changes pose at each beat timestamp.
+    Uses ffmpeg overlay filter with enable expressions.
+    """
+    if not ensure_character_assets():
+        shutil.copy(video_in, video_out)
+        return False
+
+    poses_for_format = POSE_BY_FORMAT_AND_BEAT.get(
+        format_type, POSE_BY_FORMAT_AND_BEAT["default"])
+
+    # Beat timestamps (seconds)
+    beats = [0, 15, 75, 100]
+    beat_ends = [15, 75, 100, total_dur]
+
+    # Character position: bottom-right, 20px margin, scaled to 120px wide
+    char_x = "W-140"   # 140px from right
+    char_y = "H-160"   # 160px from bottom
+
+    try:
+        # Build filter_complex with 4 overlay segments
+        filter_parts = []
+        prev = "[0:v]"
+
+        for i, (pose, start, end) in enumerate(zip(poses_for_format, beats, beat_ends)):
+            char_path = f"{CHARACTER_DIR}/{pose}.png"
+            if not os.path.exists(char_path):
+                char_path = f"{CHARACTER_DIR}/neutral.png"
+
+            input_idx = i + 1  # inputs: 0=video, 1-4=character PNGs
+            out_label = f"[v{i}]" if i < 3 else "[vout]"
+
+            filter_parts.append(
+                f"{prev}[{input_idx}:v]overlay="
+                f"x={char_x}:y={char_y}:"
+                f"enable='between(t,{start},{end:.1f})'"
+                f"{out_label}"
+            )
+            prev = out_label
+
+        filter_str = ";".join(filter_parts)
+
+        cmd = ["ffmpeg", "-y", "-i", video_in]
+        for pose in poses_for_format:
+            char_path = f"{CHARACTER_DIR}/{pose}.png"
+            if not os.path.exists(char_path):
+                char_path = f"{CHARACTER_DIR}/neutral.png"
+            cmd.extend(["-i", char_path])
+        cmd.extend([
+            "-filter_complex", filter_str,
+            "-map", "[vout]", "-map", "0:a",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "24",
+            "-c:a", "copy", video_out
+        ])
+
+        r = run(cmd, timeout=300)
+        if r.returncode == 0:
+            log(f"  ✅ Character overlay applied ({format_type})")
+            return True
+        else:
+            log(f"  ⚠️ Character overlay failed: {r.stderr[-200:]}")
+            shutil.copy(video_in, video_out)
+            return False
+    except Exception as e:
+        log(f"  ⚠️ Character overlay error: {e}")
+        shutil.copy(video_in, video_out)
+        return False
+
 # ═══════════════════════════════════════════════════════════════
 # VIDEO CREATION
 # ═══════════════════════════════════════════════════════════════
@@ -873,7 +1091,13 @@ def create_video(script_text, english_subtitles, images_input, output_name,
     if not srt_created:
         shutil.copy(working, video_file)
 
-    log("📱 Step 7/7 Shorts (9:16 reframe)...")
+    log("🎭 Step 7/8 Character overlay...")
+    char_file  = f"/tmp/{output_name}_char.mp4"
+    overlay_character_on_video(video_file, char_file, format_type, total_dur)
+    if os.path.exists(char_file) and os.path.getsize(char_file) > 0:
+        shutil.move(char_file, video_file)
+
+    log("📱 Step 8/8 Shorts (9:16 reframe)...")
     run(["ffmpeg", "-y", "-i", video_file, "-ss", "0", "-t", "58",
          "-vf", "scale=1920:1080,"
                 "crop=ih*9/16:ih:(iw-ih*9/16)/2:0,"
@@ -992,6 +1216,149 @@ def generate_metadata(topic, format_type, hook_angle):
         }
 
 
+
+# ═══════════════════════════════════════════════════════════════
+# PLAYLIST CONFIGURATION
+# ═══════════════════════════════════════════════════════════════
+
+# Maps format/topic keywords → playlist name
+# Playlists are auto-created on first run, then cached
+PLAYLIST_DEFINITIONS = {
+    "loan_emi": {
+        "name":        "கடன் & EMI வழிகாட்டி | Loan & EMI Guide",
+        "description": "Personal loan, home loan, car loan, EMI calculation, prepayment strategies — complete Tamil guide.",
+        "keywords":    ["loan", "emi", "கடன்", "home loan", "personal loan", "car loan", "mortgage", "prepayment"],
+    },
+    "legal_rights": {
+        "name":        "உங்கள் உரிமைகள் | Your Legal Rights",
+        "description": "Consumer rights, RTI, tenant rights, police rights, bank rights — know your rights in Tamil.",
+        "keywords":    ["rights", "உரிமை", "consumer", "court", "legal", "complaint", "RTI", "police", "tenant"],
+    },
+    "investment": {
+        "name":        "முதலீடு & சேமிப்பு | Investment & Savings",
+        "description": "Mutual funds, SIP, FD, RD, gold, stocks — Tamil investment guide for beginners.",
+        "keywords":    ["investment", "mutual fund", "SIP", "FD", "RD", "gold", "stocks", "சேமிப்பு", "முதலீடு"],
+    },
+    "banking_cibil": {
+        "name":        "வங்கி & CIBIL அறிவு | Banking & Credit",
+        "description": "CIBIL score, credit cards, bank accounts, UPI, net banking — complete banking guide in Tamil.",
+        "keywords":    ["cibil", "credit", "bank", "atm", "upi", "credit card", "வங்கி", "account"],
+    },
+    "govt_schemes": {
+        "name":        "அரசு திட்டங்கள் | Govt Schemes",
+        "description": "PM Kisan, Aadhaar, PF, EPF, insurance schemes, subsidy — Tamil Nadu and Central government schemes.",
+        "keywords":    ["scheme", "govt", "government", "pm kisan", "aadhaar", "epf", "pf", "subsidy", "திட்டம்"],
+    },
+    "fraud_warning": {
+        "name":        "மோசடி எச்சரிக்கை | Fraud Warnings",
+        "description": "UPI fraud, online scam, investment fraud, loan fraud — protect yourself with awareness.",
+        "keywords":    ["fraud", "scam", "மோசடி", "warning", "alert", "fake", "cheat", "phishing"],
+    },
+}
+
+PLAYLIST_CACHE_FILE = "playlist_ids.json"
+
+
+def load_playlist_cache():
+    if os.path.exists(PLAYLIST_CACHE_FILE):
+        with open(PLAYLIST_CACHE_FILE) as f:
+            return json.load(f)
+    return {}
+
+
+def save_playlist_cache(cache):
+    with open(PLAYLIST_CACHE_FILE, "w") as f:
+        json.dump(cache, f, indent=2)
+
+
+def get_or_create_playlist(youtube, playlist_key):
+    """Get existing playlist ID or create new one. Returns playlist_id."""
+    cache = load_playlist_cache()
+    if playlist_key in cache:
+        return cache[playlist_key]
+
+    defn = PLAYLIST_DEFINITIONS.get(playlist_key)
+    if not defn:
+        return None
+
+    try:
+        # Check if playlist already exists
+        resp = youtube.playlists().list(
+            part="snippet", mine=True, maxResults=50).execute()
+        for item in resp.get("items", []):
+            if item["snippet"]["title"] == defn["name"]:
+                pid = item["id"]
+                cache[playlist_key] = pid
+                save_playlist_cache(cache)
+                log(f"  ✅ Found existing playlist: {defn['name'][:40]}")
+                return pid
+
+        # Create new playlist
+        resp = youtube.playlists().insert(
+            part="snippet,status",
+            body={
+                "snippet": {
+                    "title":       defn["name"],
+                    "description": defn["description"],
+                },
+                "status": {"privacyStatus": "public"},
+            }
+        ).execute()
+        pid = resp["id"]
+        cache[playlist_key] = pid
+        save_playlist_cache(cache)
+        log(f"  ✅ Created playlist: {defn['name'][:40]} ({pid})")
+        return pid
+
+    except Exception as e:
+        log(f"  ⚠️ Playlist error: {e}")
+        return None
+
+
+def detect_playlist(topic, format_type):
+    """Detect which playlist this video belongs to based on topic keywords."""
+    topic_lower = topic.lower()
+    for key, defn in PLAYLIST_DEFINITIONS.items():
+        for kw in defn["keywords"]:
+            if kw.lower() in topic_lower:
+                return key
+    # Fallback by format
+    format_map = {
+        "warning":    "fraud_warning",
+        "rights":     "legal_rights",
+        "explainer":  "banking_cibil",
+        "comparison": "investment",
+        "news":       "banking_cibil",
+        "story":      "legal_rights",
+    }
+    return format_map.get(format_type, "banking_cibil")
+
+
+def add_video_to_playlist(youtube, video_id, topic, format_type):
+    """Add uploaded video to the correct playlist."""
+    playlist_key = detect_playlist(topic, format_type)
+    log(f"  📂 Playlist: {playlist_key}")
+    playlist_id = get_or_create_playlist(youtube, playlist_key)
+    if not playlist_id:
+        return
+
+    try:
+        youtube.playlistItems().insert(
+            part="snippet",
+            body={
+                "snippet": {
+                    "playlistId": playlist_id,
+                    "resourceId": {
+                        "kind":    "youtube#video",
+                        "videoId": video_id,
+                    },
+                }
+            }
+        ).execute()
+        log(f"  ✅ Added to playlist: {PLAYLIST_DEFINITIONS[playlist_key]['name'][:40]}")
+    except Exception as e:
+        log(f"  ⚠️ Playlist add failed: {e}")
+
 # ═══════════════════════════════════════════════════════════════
 # YOUTUBE AUTH & UPLOAD
 # ═══════════════════════════════════════════════════════════════
@@ -1077,6 +1444,11 @@ def upload_to_youtube(video_path, metadata, privacy="public"):
                 log("  ✅ Pinned comment set")
             except: pass
 
+        # Auto-add to correct playlist
+        topic_val   = metadata.get("topic", "")
+        format_type = metadata.get("format", "default")
+        add_video_to_playlist(youtube, vid, topic_val, format_type)
+
         return vid
     except Exception as e:
         log(f"❌ Upload failed: {e}"); return None
@@ -1150,6 +1522,9 @@ def process_video(topic=None, format_type=None, upload=False, privacy="public"):
         "thumbnail_concept": metadata.get("thumbnail_concept"),
         "created": datetime.datetime.now().isoformat(),
     }
+    # Inject topic+format for playlist detection at upload time
+    metadata["topic"]  = topic_val
+    metadata["format"] = fmt
     with open(f"{METADATA_DIR}/{safe_name}.json", "w", encoding="utf-8") as f:
         json.dump(meta_data, f, ensure_ascii=False, indent=2)
 
