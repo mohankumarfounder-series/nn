@@ -1,0 +1,1255 @@
+#!/usr/bin/env python3
+"""
+╔══════════════════════════════════════════════════════════════════╗
+║          நிதி நீதி தமிழ் — FULLY AUTOMATED BOT v1.0            ║
+║  Tamil Finance & Legal Rights YouTube Channel                   ║
+║  2-min videos · English subtitles · Male+Female voices          ║
+║  Auto topic · Pexels visuals · YouTube upload · Daily 6AM IST  ║
+╚══════════════════════════════════════════════════════════════════╝
+
+Setup:
+  pip install google-genai groq edge-tts google-api-python-client \
+              google-auth-oauthlib requests beautifulsoup4 schedule \
+              Pillow
+
+Usage:
+  python nidhi_neethi_bot.py --day today          # today's video
+  python nidhi_neethi_bot.py --day today --upload # generate + upload
+  python nidhi_neethi_bot.py --topic "custom"     # custom topic
+  python nidhi_neethi_bot.py --daemon             # 24/7 scheduler
+  python nidhi_neethi_bot.py --auth-youtube       # first-time OAuth
+"""
+
+import argparse
+import base64
+import concurrent.futures
+import datetime
+import hashlib
+import json
+import os
+import pickle
+import random
+import re
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+import requests
+from bs4 import BeautifulSoup
+
+try:
+    import google.genai as genai
+except ImportError:
+    print("pip install google-genai"); sys.exit(1)
+
+try:
+    from groq import Groq
+except ImportError:
+    Groq = None
+
+try:
+    from google.auth.transport.requests import Request
+    from google.oauth2.credentials import Credentials
+    from google_auth_oauthlib.flow import InstalledAppFlow
+    from googleapiclient.discovery import build
+    from googleapiclient.http import MediaFileUpload
+except ImportError:
+    print("pip install google-api-python-client google-auth-oauthlib"); sys.exit(1)
+
+try:
+    import schedule
+    HAS_SCHEDULE = True
+except ImportError:
+    HAS_SCHEDULE = False
+
+
+# ═══════════════════════════════════════════════════════════════
+# CONFIGURATION
+# ═══════════════════════════════════════════════════════════════
+GEMINI_KEY     = os.environ.get("GEMINI_KEY", "")
+GROQ_API_KEY   = os.environ.get("GROQ_API_KEY", "")
+PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY", "")
+
+GROQ_MODEL   = "llama-3.3-70b-versatile"
+BGM_FILE     = "bgm.mp3"
+OUTPUT_DIR   = "videos"
+SHORTS_DIR   = "shorts"
+METADATA_DIR = "metadata"
+SCRIPTS_DIR  = "scripts"
+PEXELS_DIR   = "pexels_images"
+SUBS_DIR     = "subtitles"
+QUEUE_FILE   = "upload_queue.json"
+
+YOUTUBE_SCOPES         = ["https://www.googleapis.com/auth/youtube",
+                          "https://www.googleapis.com/auth/youtube.upload"]
+YOUTUBE_TOKEN_FILE     = "youtube_token.pickle"
+YOUTUBE_CLIENT_SECRETS = "client_secrets.json"
+
+CHANNEL_NAME    = "நிதி நீதி தமிழ்"
+CHANNEL_HANDLE  = "@NidhiNeethiTamil"
+CHANNEL_EMAIL   = "nidhineethitamil@gmail.com"
+
+# 2 min video = ~320-360 Tamil words at -13% TTS rate
+# chars: ~2200-2600 (Tamil avg 6.5 chars/word)
+TARGET_MIN_CHARS = 1800
+TARGET_MAX_CHARS = 2800
+
+# ═══════════════════════════════════════════════════════════════
+# VOICE CONFIGURATION — Male + Female mix
+# ═══════════════════════════════════════════════════════════════
+
+# edge-tts Tamil voices
+VOICE_FEMALE = "ta-IN-PallaviNeural"   # warm, clear female
+VOICE_MALE   = "ta-IN-ValluvarNeural"  # authoritative male
+
+# Voice EQ profiles
+EQ_FEMALE_FINANCE = (
+    "highpass=f=80,"
+    "equalizer=f=250:t=q:w=0.8:g=2,"
+    "equalizer=f=1200:t=q:w=0.9:g=3,"
+    "equalizer=f=2500:t=q:w=1:g=2,"
+    "equalizer=f=5000:t=q:w=1:g=-2,"
+    "acompressor=threshold=-20dB:ratio=2.5:attack=5:release=50:makeup=2,"
+    "loudnorm=I=-14:TP=-1.5:LRA=9"
+)
+
+EQ_MALE_FINANCE = (
+    "highpass=f=60,"
+    "equalizer=f=150:t=q:w=0.8:g=3,"
+    "equalizer=f=800:t=q:w=0.9:g=2,"
+    "equalizer=f=2000:t=q:w=1:g=2,"
+    "equalizer=f=4000:t=q:w=1:g=-2,"
+    "acompressor=threshold=-22dB:ratio=2:attack=5:release=60:makeup=3,"
+    "loudnorm=I=-14:TP=-1.5:LRA=8"
+)
+
+# Content type → voice assignment
+VOICE_ASSIGNMENT = {
+    "warning":    ("female", VOICE_FEMALE, EQ_FEMALE_FINANCE),
+    "explainer":  ("male",   VOICE_MALE,   EQ_MALE_FINANCE),
+    "rights":     ("male",   VOICE_MALE,   EQ_MALE_FINANCE),
+    "comparison": ("female", VOICE_FEMALE, EQ_FEMALE_FINANCE),
+    "story":      ("female", VOICE_FEMALE, EQ_FEMALE_FINANCE),
+    "news":       ("male",   VOICE_MALE,   EQ_MALE_FINANCE),
+    "default":    ("female", VOICE_FEMALE, EQ_FEMALE_FINANCE),
+}
+
+# ═══════════════════════════════════════════════════════════════
+# BGM PROFILES — professional finance/legal tones
+# ═══════════════════════════════════════════════════════════════
+
+BGM_PROFILES = {
+    "warning":    {"freq": "220", "freq2": "440",  "mood": "tense corporate"},
+    "explainer":  {"freq": "396", "freq2": "528",  "mood": "calm informative"},
+    "rights":     {"freq": "285", "freq2": "570",  "mood": "empowering"},
+    "comparison": {"freq": "417", "freq2": "528",  "mood": "analytical neutral"},
+    "story":      {"freq": "174", "freq2": "348",  "mood": "narrative cinematic"},
+    "news":       {"freq": "528", "freq2": "396",  "mood": "corporate breaking"},
+    "default":    {"freq": "396", "freq2": "528",  "mood": "calm professional"},
+}
+
+# ═══════════════════════════════════════════════════════════════
+# PEXELS QUERIES — finance & legal imagery
+# ═══════════════════════════════════════════════════════════════
+
+TOPIC_PEXELS_QUERIES = {
+    "loan":        ["bank loan documents india", "rupee currency india", "loan agreement signing"],
+    "cibil":       ["credit score report", "bank statement india", "financial documents"],
+    "investment":  ["stock market india", "mutual fund investment", "money growth chart"],
+    "fraud":       ["cyber fraud warning", "bank fraud alert", "online scam prevention"],
+    "legal":       ["indian court justice", "legal documents india", "consumer court"],
+    "tax":         ["income tax india", "tax filing documents", "rupee notes"],
+    "insurance":   ["insurance policy india", "health insurance documents", "life insurance"],
+    "rights":      ["consumer rights protest", "legal rights india", "justice symbol"],
+    "bank":        ["indian bank branch", "banking documents", "atm india"],
+    "salary":      ["salary slip india", "office work india", "professional indian"],
+    "rbi":         ["reserve bank india building", "monetary policy india", "rupee symbol"],
+    "default":     ["indian finance professional", "rupee currency", "business india"],
+}
+
+# ═══════════════════════════════════════════════════════════════
+# CONTENT INTELLIGENCE — what topics to cover
+# ═══════════════════════════════════════════════════════════════
+
+EVERGREEN_TOPICS = [
+    "CIBIL score 750+ எப்படி பெறுவது — 5 நடைமுறை வழிகள்",
+    "Personal loan vs Gold loan — எது நல்லது உங்களுக்கு",
+    "Credit card minimum payment trap — இந்த தவறை செய்யாதீர்கள்",
+    "EPF பணம் எப்படி withdraw செய்வது — step by step",
+    "Consumer court complaint எப்படி file செய்வது — உங்கள் உரிமை",
+    "SIP vs Lump sum — முதல் முறை முதலீடு செய்பவருக்கு",
+    "Bank loan reject ஆனால் என்ன செய்வது",
+    "GST bill இல்லாமல் purchase — உங்களுக்கு என்ன ஆபத்து",
+    "FD vs RD vs Savings account — எது அதிக வட்டி தரும்",
+    "Insurance claim reject ஆனால் என்ன செய்வது",
+    "UPI fraud ஆனால் பணம் திரும்ப பெறுவது எப்படி",
+    "Home loan prepayment — எப்போது செய்வது, எப்போது வேண்டாம்",
+    "PF account login செய்வது எப்படி — EPFO portal guide",
+    "Online shopping return denied — consumer rights என்ன",
+    "Salary account vs savings account — வித்தியாசம் என்ன",
+    "Income tax notice வந்தால் என்ன செய்வது",
+    "Loan guarantor ஆவதன் risks — தெரிந்துகொள்ளுங்கள்",
+    "Health insurance claim process — step by step guide",
+    "Mutual fund SIP stop செய்யலாமா — என்ன நடக்கும்",
+    "Bank mis-selling complaint எப்படி file செய்வது",
+]
+
+CONTENT_FORMAT_TYPES = [
+    "warning",
+    "explainer",
+    "rights",
+    "comparison",
+    "story",
+    "news",
+]
+
+# ═══════════════════════════════════════════════════════════════
+# PROMPTS
+# ═══════════════════════════════════════════════════════════════
+
+DAILY_TOPIC_PROMPT = """You are a content strategist for "நிதி நீதி தமிழ்" — a Tamil YouTube channel covering personal finance and legal rights for middle-class Tamil people.
+
+TODAY: {date} | {day}
+RECENT RBI/SEBI NEWS: {finance_news}
+TRENDING SEARCHES: {trends}
+RECENT EVERGREEN TOPICS (avoid repeating these recently used ones): {recent_topics}
+
+Pick the SINGLE BEST video topic for today. Priority order:
+1. Breaking RBI/SEBI/court news affecting common Tamil people today
+2. Month-specific finance events (tax season, budget period, salary season)
+3. High-search evergreen topic not covered recently
+
+FORMAT types to choose from: warning / explainer / rights / comparison / story / news
+
+Return ONLY valid JSON:
+{{
+  "topic": "<specific clickable Tamil topic>",
+  "format": "<one of: warning/explainer/rights/comparison/story/news>",
+  "pexels_keyword": "<one English keyword for image search: loan/cibil/investment/fraud/legal/tax/insurance/rights/bank/salary/rbi>",
+  "hook_angle": "<one sentence — the emotional hook for first 5 seconds>",
+  "reason": "<why this topic is best today>"
+}}"""
+
+SCRIPT_PROMPT = """You are a professional Tamil YouTube scriptwriter for "நிதி நீதி தமிழ்" — a finance and legal rights channel.
+
+Topic: {topic}
+Format: {format_type}
+Hook angle: {hook_angle}
+Voice: {voice_gender} voice
+
+STRICT RULES:
+1. ⏱️ EXACTLY 2 minutes = 320-360 Tamil words. Count carefully.
+2. Strong hook in first 5 seconds — use the hook angle above
+3. Conversational Tamil — not textbook Tamil. How a knowledgeable friend talks.
+4. Numbers, percentages, law sections — make them memorable
+5. NO headers, NO bullets, NO numbering, NO markdown
+6. Natural breath pauses with "..." at emotional moments
+7. Real examples with Tamil names (Rajan, Priya, Murugan etc)
+8. End with ONE clear actionable takeaway
+9. Last line: subscribe + bell icon CTA (natural, not forced)
+
+FORMAT-SPECIFIC TONE:
+- warning: urgent but calm — "இந்த தவறை நீங்களும் செய்கிறீர்களா?"
+- explainer: teacher friend — "இதை simple ஆ புரிஞ்சுக்கோங்க"
+- rights: empowering — "இது உங்கள் உரிமை, யாரும் மறுக்க முடியாது"
+- comparison: analytical — "இந்த இரண்டையும் compare பண்ணி பாருங்க"
+- story: narrative — "இது ஒரு உண்மையான கதை..."
+- news: confident anchor — "இன்று ஒரு முக்கியமான செய்தி"
+
+OUTPUT: Tamil script only. No labels. No section headers. Pure continuous speech.
+"""
+
+SUBTITLE_PROMPT = """You are a professional subtitle translator.
+
+Below is a Tamil voiceover script. Translate it into English subtitles.
+
+Rules:
+1. Keep translations natural English — not word-for-word literal
+2. Break into short subtitle lines (max 8 words per line)
+3. Maintain the same energy and urgency as the Tamil original
+4. Financial terms: keep Tamil terms with English in brackets (e.g. "CIBIL score (credit score)")
+5. Return ONLY the English subtitle text, line by line
+6. No timestamps — just the translated lines in order
+
+Tamil script:
+{tamil_script}
+"""
+
+METADATA_PROMPT = """Generate YouTube metadata for "நிதி நீதி தமிழ்" — Tamil finance & legal rights channel.
+
+Topic: {topic}
+Format: {format_type}
+Hook: {hook_angle}
+
+Return ONLY valid JSON:
+{{
+  "title": "<Tamil title — clickable, under 60 chars, include number if natural>",
+  "description": "<SEO description 2000 chars — Tamil + English keywords, benefits list, disclaimer, subscribe CTA, hashtags>",
+  "tags": "<25 comma-separated tags — Tamil + English mix>",
+  "pinned_comment": "<Tamil pinned comment under 300 chars — ask viewers their experience + subscribe>",
+  "thumbnail_concept": "<Detailed thumbnail description: background color, main text in Tamil, person/object, emotion, contrast elements>"
+}}
+
+Title examples:
+- "UPI Fraud ஆனால் பணம் திரும்ப வருமா? | நிதி நீதி தமிழ்"
+- "CIBIL Score 750+ பெற இந்த 5 வழிகள் மட்டும் போதும்"
+- "Credit Card Minimum Pay — இந்த தவறு உங்களை திவாலாக்கும்"
+
+Description must include:
+- Disclaimer: "இந்த video educational purpose மட்டுமே. Financial advice இல்லை."
+- Subscribe CTA in Tamil
+- Hashtags: #நிதிநீதிதமிழ் #NidhiNeethiTamil #TamilFinance #TamilLegalRights #PersonalFinanceTamil
+"""
+
+THUMBNAIL_PROMPT = """Create a detailed AI image generation prompt for a YouTube thumbnail.
+
+Channel: நிதி நீதி தமிழ் (Tamil Finance & Legal Rights)
+Topic: {topic}
+Format: {format_type}
+Thumbnail concept: {thumbnail_concept}
+
+Return a detailed prompt for image generation (Midjourney/DALL-E style):
+- Professional finance/legal visual
+- Bold Tamil text overlay space on left or right
+- High contrast — works at small size
+- Color scheme: deep blue + gold OR red + white (trust + urgency)
+- Indian professional context
+- No faces unless essential
+- Clean, minimal, premium look
+"""
+
+
+# ═══════════════════════════════════════════════════════════════
+# KEN BURNS PRESETS — professional finance look
+# ═══════════════════════════════════════════════════════════════
+
+KB_PRESETS = [
+    ("min(1.0+0.0006*on,1.15)", "iw/2-(iw/zoom/2)+on*0.2", "ih/2-(ih/zoom/2)",       "zoom-in pan-right"),
+    ("min(1.0+0.0006*on,1.15)", "iw/2-(iw/zoom/2)-on*0.2", "ih/2-(ih/zoom/2)",       "zoom-in pan-left"),
+    ("max(1.15-0.0006*on,1.0)", "iw/2-(iw/zoom/2)",         "ih/2-(ih/zoom/2)",       "zoom-out center"),
+    ("min(1.0+0.0005*on,1.10)", "iw/2-(iw/zoom/2)",         "ih/2-(ih/zoom/2)+on*0.15","zoom-in pan-up"),
+    ("max(1.12-0.0005*on,1.0)", "iw/2-(iw/zoom/2)+on*0.15", "ih/2-(ih/zoom/2)",       "zoom-out pan-right"),
+    ("min(1.0+0.0003*on,1.08)", "iw/2-(iw/zoom/2)",         "ih/2-(ih/zoom/2)",       "slow-zoom"),
+]
+
+XFADE_TRANSITIONS = ["fade", "dissolve", "wipeleft", "wiperight", "fadeblack", "fade"]
+
+
+# ═══════════════════════════════════════════════════════════════
+# UTILITY FUNCTIONS
+# ═══════════════════════════════════════════════════════════════
+
+def run(cmd, timeout=300):
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+
+
+def log(msg):
+    print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {msg}")
+
+
+def get_dur(f):
+    r = run(["ffprobe", "-v", "error", "-show_entries",
+             "format=duration", "-of", "csv=p=0", f])
+    try:
+        return float(r.stdout.strip())
+    except:
+        return 0.0
+
+
+def ensure_dirs():
+    for d in [OUTPUT_DIR, SHORTS_DIR, METADATA_DIR, SCRIPTS_DIR,
+              PEXELS_DIR, SUBS_DIR]:
+        os.makedirs(d, exist_ok=True)
+
+
+def load_queue():
+    if os.path.exists(QUEUE_FILE):
+        with open(QUEUE_FILE) as f:
+            return json.load(f)
+    return []
+
+
+def save_queue(q):
+    with open(QUEUE_FILE, "w") as f:
+        json.dump(q, f, indent=2)
+
+
+def load_recent_topics(n=10):
+    topics = []
+    if os.path.isdir(METADATA_DIR):
+        files = sorted(Path(METADATA_DIR).glob("*.json"), reverse=True)[:n]
+        for f in files:
+            try:
+                d = json.loads(f.read_text())
+                topics.append(d.get("topic", ""))
+            except:
+                pass
+    return topics
+
+
+def call_llm(prompt, max_retries=3):
+    errs = []
+    if GROQ_API_KEY and Groq:
+        for attempt in range(max_retries):
+            try:
+                client = Groq(api_key=GROQ_API_KEY)
+                resp = client.chat.completions.create(
+                    messages=[{"role": "user", "content": prompt}],
+                    model=GROQ_MODEL, temperature=0.85, max_tokens=4000,
+                )
+                return resp.choices[0].message.content
+            except Exception as e:
+                wait = 10 * (attempt + 1)
+                log(f"⏳ Groq retry {attempt+1}/{max_retries} in {wait}s: {str(e)[:80]}")
+                errs.append(str(e))
+                time.sleep(wait)
+        log("⚠️ Groq failed → Gemini fallback")
+
+    client = genai.Client(api_key=GEMINI_KEY)
+    for attempt in range(max_retries):
+        try:
+            resp = client.models.generate_content(
+                model="gemini-2.5-flash", contents=prompt)
+            return resp.text
+        except Exception as e:
+            err = str(e)
+            if "429" in err or "RESOURCE_EXHAUSTED" in err:
+                wait = min(30 * (2 ** attempt), 300)
+                log(f"⏳ Gemini quota wait {wait}s")
+                time.sleep(wait)
+            else:
+                raise
+    raise Exception(f"All LLM providers failed: {'; '.join(errs[:2])}")
+
+
+def parse_json_response(raw):
+    clean = raw.strip()
+    if clean.startswith("```"):
+        parts = clean.split("```")
+        clean = parts[1] if len(parts) > 1 else clean
+        if clean.startswith("json"):
+            clean = clean[4:]
+    return json.loads(clean.strip())
+
+
+# ═══════════════════════════════════════════════════════════════
+# NEWS & TRENDS FETCHING
+# ═══════════════════════════════════════════════════════════════
+
+def fetch_finance_news():
+    """Fetch RBI, SEBI, finance news relevant to Tamil audience."""
+    news = []
+    sources = [
+        ("https://www.rbi.org.in/Scripts/BS_PressReleaseDisplay.aspx", "RBI"),
+        ("https://economictimes.indiatimes.com/markets/rbi", "ET"),
+        ("https://www.thehindu.com/business/Economy/", "TheHindu"),
+        ("https://www.dinamani.com/business/", "Dinamani"),
+    ]
+    headers = {"User-Agent": "Mozilla/5.0"}
+    for url, src in sources:
+        try:
+            r = requests.get(url, headers=headers, timeout=10)
+            if r.status_code == 200:
+                soup = BeautifulSoup(r.text, "html.parser")
+                for a in soup.find_all("a", href=True):
+                    t = a.get_text(strip=True)
+                    keywords = ["rate", "loan", "bank", "fraud", "consumer",
+                                "CIBIL", "credit", "EMI", "RBI", "SEBI",
+                                "insurance", "tax", "rupee", "வட்டி", "கடன்"]
+                    if any(k.lower() in t.lower() for k in keywords) and len(t) > 15:
+                        news.append(f"[{src}] {t[:100]}")
+        except:
+            pass
+    return "\n".join(news[:15]) if news else "No live news. Use evergreen topics."
+
+
+def fetch_trends():
+    try:
+        headers = {"User-Agent": "Mozilla/5.0"}
+        r = requests.get("https://trends.google.com/trends/trendingsearches/daily?geo=IN",
+                         headers=headers, timeout=10)
+        if r.status_code == 200:
+            soup = BeautifulSoup(r.text, "html.parser")
+            items = [d.get_text(strip=True) for d in soup.find_all("div", class_="title")]
+            return "\n".join(f"- {i}" for i in items[:10])
+    except:
+        pass
+    return "- personal finance tamil\n- loan eligibility\n- cibil score"
+
+
+# ═══════════════════════════════════════════════════════════════
+# PEXELS IMAGE FETCHING
+# ═══════════════════════════════════════════════════════════════
+
+def fetch_pexels_images(keyword, output_dir, count=5):
+    if not PEXELS_API_KEY:
+        log("⚠️ PEXELS_API_KEY not set")
+        return []
+
+    os.makedirs(output_dir, exist_ok=True)
+    headers = {"Authorization": PEXELS_API_KEY}
+    downloaded = []
+
+    queries = TOPIC_PEXELS_QUERIES.get(keyword, TOPIC_PEXELS_QUERIES["default"])
+    queries = list(queries)
+    random.shuffle(queries)
+
+    for query in queries:
+        if len(downloaded) >= count:
+            break
+        try:
+            resp = requests.get(
+                "https://api.pexels.com/v1/search",
+                headers=headers,
+                params={"query": query, "per_page": 3, "orientation": "landscape"},
+                timeout=15
+            )
+            if resp.status_code != 200:
+                continue
+            for photo in resp.json().get("photos", []):
+                if len(downloaded) >= count:
+                    break
+                img_url = photo["src"]["large2x"]
+                fname = os.path.join(output_dir, f"{photo['id']}.jpg")
+                if os.path.exists(fname):
+                    downloaded.append(fname)
+                    continue
+                ir = requests.get(img_url, timeout=30, stream=True)
+                if ir.status_code == 200:
+                    with open(fname, "wb") as f:
+                        for chunk in ir.iter_content(8192):
+                            f.write(chunk)
+                    downloaded.append(fname)
+                    log(f"  📸 {os.path.basename(fname)} ({query})")
+        except Exception as e:
+            log(f"  ⚠️ Pexels error: {e}")
+
+    log(f"  ✅ {len(downloaded)} images fetched")
+    return downloaded
+
+
+def ensure_fallback_image():
+    if not os.path.exists("image.png"):
+        try:
+            from PIL import Image, ImageDraw
+            img = Image.new("RGB", (1920, 1080), (10, 30, 60))
+            d = ImageDraw.Draw(img)
+            d.rectangle([80, 400, 600, 680], fill=(20, 50, 100))
+            d.rectangle([640, 200, 1840, 880], fill=(15, 40, 80))
+            img.save("image.png")
+        except:
+            pass
+
+
+# ═══════════════════════════════════════════════════════════════
+# BGM GENERATION — professional finance tone
+# ═══════════════════════════════════════════════════════════════
+
+def ensure_bgm(format_type="default"):
+    profile = BGM_PROFILES.get(format_type, BGM_PROFILES["default"])
+    bgm_path = f"bgm_{format_type}.mp3"
+    if os.path.exists(bgm_path):
+        return bgm_path
+
+    log(f"🎵 Generating BGM: {profile['mood']} ({profile['freq']}Hz)...")
+    f1, f2 = profile["freq"], profile["freq2"]
+    r = run([
+        "ffmpeg", "-y", "-f", "lavfi", "-i", f"sine=frequency={f1}:duration=200",
+        "-f", "lavfi", "-i", f"sine=frequency={f2}:duration=200",
+        "-f", "lavfi", "-i", "anoisesrc=d=200:c=pink:r=44100:a=0.005",
+        "-filter_complex",
+        "[0:a]volume=0.12,afade=t=in:st=0:d=3,afade=t=out:st=197:d=3[s1];"
+        "[1:a]volume=0.07,afade=t=in:st=0:d=5[s2];"
+        "[2:a]lowpass=f=600,volume=0.08[n];"
+        "[s1][s2][n]amix=inputs=3:duration=first[out]",
+        "-map", "[out]", "-ar", "44100", "-ac", "2", bgm_path
+    ], timeout=60)
+
+    if r.returncode == 0:
+        log(f"  ✅ BGM: {bgm_path}")
+        return bgm_path
+    else:
+        log("  ⚠️ BGM generation failed")
+        return BGM_FILE if os.path.exists(BGM_FILE) else None
+
+
+# ═══════════════════════════════════════════════════════════════
+# SUBTITLE GENERATION (SRT format)
+# ═══════════════════════════════════════════════════════════════
+
+def generate_srt(english_lines, total_duration, output_path):
+    """Generate SRT subtitle file from English lines + total duration."""
+    lines = [l.strip() for l in english_lines if l.strip()]
+    if not lines:
+        return None
+
+    dur_per_line = total_duration / max(len(lines), 1)
+    srt_content = ""
+
+    for i, line in enumerate(lines):
+        start = i * dur_per_line
+        end   = min((i + 1) * dur_per_line, total_duration - 0.1)
+
+        def fmt(s):
+            h = int(s // 3600)
+            m = int((s % 3600) // 60)
+            sec = int(s % 60)
+            ms = int((s % 1) * 1000)
+            return f"{h:02d}:{m:02d}:{sec:02d},{ms:03d}"
+
+        srt_content += f"{i+1}\n{fmt(start)} --> {fmt(end)}\n{line}\n\n"
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(srt_content)
+    log(f"  ✅ SRT: {output_path} ({len(lines)} lines)")
+    return output_path
+
+
+def burn_subtitles(video_in, srt_path, video_out):
+    """Burn English subtitles into video."""
+    # Style: white text, black outline, bottom center, professional
+    subtitle_style = (
+        "FontName=Arial,"
+        "FontSize=22,"
+        "PrimaryColour=&H00FFFFFF,"
+        "OutlineColour=&H00000000,"
+        "BackColour=&H80000000,"
+        "Bold=1,"
+        "Outline=2,"
+        "Shadow=1,"
+        "Alignment=2,"
+        "MarginV=30"
+    )
+    r = run([
+        "ffmpeg", "-y", "-i", video_in,
+        "-vf", f"subtitles={srt_path}:force_style='{subtitle_style}'",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "25",
+        "-c:a", "copy", video_out
+    ], timeout=300)
+    return r.returncode == 0
+
+
+# ═══════════════════════════════════════════════════════════════
+# TEXT OVERLAY — channel branding on video
+# ═══════════════════════════════════════════════════════════════
+
+def build_text_overlay(title_short, format_type):
+    safe = lambda s: s.replace("'", "").replace(":", "-").replace('"', "")
+    channel = safe(CHANNEL_NAME)
+    title   = safe(title_short[:45]) if title_short else ""
+
+    fmt_labels = {
+        "warning":    "WARNING",
+        "explainer":  "EXPLAINER",
+        "rights":     "YOUR RIGHTS",
+        "comparison": "COMPARISON",
+        "story":      "TRUE STORY",
+        "news":       "BREAKING",
+    }
+    fmt_label = fmt_labels.get(format_type, "FINANCE")
+
+    overlays = [
+        # Channel name — top left, always visible
+        f"drawtext=text='{channel}':fontsize=26:fontcolor=white@0.85:"
+        f"x=30:y=28:shadowcolor=black@0.9:shadowx=2:shadowy=2",
+        # Format badge — top right
+        f"drawtext=text='{fmt_label}':fontsize=20:fontcolor=yellow@0.9:"
+        f"x=w-tw-30:y=28:shadowcolor=black@0.9:shadowx=2:shadowy=2",
+    ]
+
+    # Title fades in at 0.5s, holds 6s
+    if title:
+        overlays.append(
+            f"drawtext=text='{title}':fontsize=38:fontcolor=white@1.0:"
+            f"x=(w-tw)/2:y=h-100:"
+            f"shadowcolor=black@0.95:shadowx=3:shadowy=3:"
+            f"alpha='if(lt(t,0.5),0,if(lt(t,2),(t-0.5)/1.5,if(lt(t,7),1,if(lt(t,8),(8-t),0))))'"
+        )
+
+    return ",".join(overlays)
+
+
+# ═══════════════════════════════════════════════════════════════
+# VIDEO CREATION
+# ═══════════════════════════════════════════════════════════════
+
+def build_video_filter(images, total_frames, fps=25, seed=0):
+    import random as _r
+    rng = _r.Random(seed)
+    num = len(images)
+    seg_frames = total_frames // num
+    filters = []
+
+    for i in range(num):
+        preset = KB_PRESETS[i % len(KB_PRESETS)]
+        z_expr, x_expr, y_expr, label = preset
+        adj = max(int(seg_frames * rng.uniform(0.9, 1.1)), fps * 3)
+        log(f"    Image {i+1}: {label}")
+        filters.append(
+            f"[{i}:v]loop=loop=-1:size=1:start=0,"
+            f"scale=1920:1080:force_original_aspect_ratio=increase,"
+            f"crop=1920:1080,"
+            f"zoompan=z='{z_expr}':x='{x_expr}':y='{y_expr}':d={adj}:fps={fps}:s=1920x1080,"
+            f"trim=0:{adj/fps:.2f},setpts=PTS-STARTPTS[v{i}]"
+        )
+
+    prev = "v0"
+    xfade_dur = 0.8
+    for i in range(1, num):
+        transition = XFADE_TRANSITIONS[i % len(XFADE_TRANSITIONS)]
+        offset = max(0.5, i * seg_frames / fps - xfade_dur)
+        label  = f"x{i}"
+        filters.append(
+            f"[{prev}][v{i}]xfade=transition={transition}"
+            f":duration={xfade_dur}:offset={offset:.2f}[{label}]"
+        )
+        prev = label
+
+    return num, ";".join(filters), prev
+
+
+def create_video(script_text, english_subtitles, images_input, output_name,
+                 format_type="default", title_short="", bgm_path=None):
+    ensure_dirs()
+    ensure_fallback_image()
+
+    script_file = f"/tmp/{output_name}_script.txt"
+    voice_file  = f"/tmp/{output_name}_voice.mp3"
+    human_file  = f"/tmp/{output_name}_human.mp3"
+    mixed_file  = f"/tmp/{output_name}_mixed.mp3"
+    raw_file    = f"/tmp/{output_name}_raw.mp4"
+    overlay_file= f"/tmp/{output_name}_overlay.mp4"
+    srt_file    = f"{SUBS_DIR}/{output_name}.srt"
+    video_file  = f"{OUTPUT_DIR}/{output_name}_video.mp4"
+    short_file  = f"{SHORTS_DIR}/{output_name}_short.mp4"
+
+    with open(script_file, "w", encoding="utf-8") as f:
+        f.write(script_text)
+
+    # ── Voice selection
+    gender, voice_id, eq_filter = VOICE_ASSIGNMENT.get(
+        format_type, VOICE_ASSIGNMENT["default"])
+    log(f"🔊 Step 1/7 Voice ({gender} — {voice_id})...")
+    t0 = time.time()
+    try:
+        r = run(["edge-tts", "--file", script_file, "--voice", voice_id,
+                 "--rate=-13%", "--pitch=+1Hz", "--write-media", voice_file],
+                timeout=300)
+    except subprocess.TimeoutExpired:
+        log("❌ TTS timeout"); return None
+    if r.returncode != 0:
+        log(f"❌ TTS error: {r.stderr[-200:]}"); return None
+    dur = get_dur(voice_file)
+    log(f"  Voice: {dur:.1f}s ({time.time()-t0:.0f}s)")
+
+    log("🎧 Step 2/7 Voice EQ...")
+    r = run(["ffmpeg", "-y", "-i", voice_file, "-af", eq_filter, human_file])
+    if r.returncode != 0:
+        shutil.copy(voice_file, human_file)
+    dur = get_dur(human_file)
+
+    log("🎵 Step 3/7 BGM mix...")
+    if bgm_path and os.path.exists(bgm_path):
+        fo  = max(0, dur - 2)
+        bfo = max(0, dur - 3)
+        fc = (
+            "[0:a]volume=1.0,afade=t=in:st=0:d=1,afade=t=out:st={fo}:d=2[v];"
+            "[1:a]volume=0.28,afade=t=in:st=0:d=3,afade=t=out:st={bfo}:d=3[b];"
+            "[v][b]amix=inputs=2:duration=first:dropout_transition=2[out]"
+        ).format(fo=fo, bfo=bfo)
+        run(["ffmpeg", "-y", "-i", human_file, "-i", bgm_path,
+             "-filter_complex", fc, "-map", "[out]", "-ac", "2", mixed_file])
+        audio = mixed_file if os.path.exists(mixed_file) else human_file
+    else:
+        audio = human_file
+    total_dur = get_dur(audio)
+
+    log("🎬 Step 4/7 Video (Ken Burns)...")
+    if isinstance(images_input, list):
+        images = [f for f in images_input if os.path.exists(f)]
+    else:
+        images = []
+
+    if not images and os.path.exists("image.png"):
+        images = ["image.png"]
+    if not images:
+        log("❌ No images"); return None
+
+    log(f"  Using {len(images)} images")
+    fps = 25
+    seed = int(hashlib.md5(output_name.encode()).hexdigest()[:8], 16)
+    total_frames = max(int(total_dur * fps), fps * 5)
+    num_inputs, vfilter, vlabel = build_video_filter(images, total_frames, fps, seed)
+
+    cmd = ["ffmpeg", "-y"]
+    for img in images:
+        cmd.extend(["-loop", "1", "-t", str(total_dur + 2), "-i", img])
+    cmd.extend(["-i", audio, "-filter_complex", vfilter,
+                "-map", f"[{vlabel}]", "-map", f"{num_inputs}:a",
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "24",
+                "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest",
+                "-avoid_negative_ts", "make_zero", raw_file])
+    r = run(cmd, timeout=400)
+    if r.returncode != 0:
+        # Fallback single image
+        r = run(["ffmpeg", "-y", "-loop", "1", "-i", images[0], "-i", audio,
+                 "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,"
+                        "pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
+                 "-c:v", "libx264", "-preset", "veryfast", "-crf", "24",
+                 "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", raw_file],
+                timeout=300)
+        if r.returncode != 0:
+            log("❌ Video encoding failed"); return None
+
+    log("✍️  Step 5/7 Text overlays...")
+    overlay_filter = build_text_overlay(title_short, format_type)
+    r = run(["ffmpeg", "-y", "-i", raw_file,
+             "-vf", overlay_filter,
+             "-c:v", "libx264", "-preset", "veryfast", "-crf", "24",
+             "-c:a", "copy", overlay_file], timeout=200)
+    working = overlay_file if r.returncode == 0 else raw_file
+
+    log("📝 Step 6/7 English subtitles...")
+    srt_created = False
+    if english_subtitles:
+        srt_path = generate_srt(english_subtitles, total_dur, srt_file)
+        if srt_path:
+            r = run(["ffmpeg", "-y", "-i", working,
+                     "-vf", f"subtitles={srt_path}:force_style='"
+                            "FontName=Arial,FontSize=20,"
+                            "PrimaryColour=&H00FFFFFF,"
+                            "OutlineColour=&H00000000,"
+                            "BackColour=&H60000000,"
+                            "Bold=1,Outline=2,Shadow=1,"
+                            "Alignment=2,MarginV=50'",
+                     "-c:v", "libx264", "-preset", "veryfast", "-crf", "24",
+                     "-c:a", "copy", video_file], timeout=200)
+            if r.returncode == 0:
+                srt_created = True
+                log("  ✅ English subtitles burned in")
+    if not srt_created:
+        shutil.copy(working, video_file)
+
+    log("📱 Step 7/7 Shorts (9:16 reframe)...")
+    run(["ffmpeg", "-y", "-i", video_file, "-ss", "0", "-t", "58",
+         "-vf", "scale=1920:1080,"
+                "crop=ih*9/16:ih:(iw-ih*9/16)/2:0,"
+                "scale=1080:1920",
+         "-c:v", "libx264", "-preset", "veryfast", "-crf", "27",
+         "-c:a", "aac", short_file], timeout=120)
+
+    mb = os.path.getsize(video_file) / (1024*1024)
+    log(f"  ✅ {video_file} ({mb:.1f}MB)")
+
+    for f in [script_file, voice_file, human_file, mixed_file, raw_file, overlay_file]:
+        try:
+            if os.path.exists(f): os.remove(f)
+        except: pass
+
+    return video_file
+
+
+# ═══════════════════════════════════════════════════════════════
+# CONTENT GENERATION
+# ═══════════════════════════════════════════════════════════════
+
+def discover_daily_config():
+    """LLM decides best topic + format for today."""
+    log("🧠 LLM deciding today's topic...")
+    now = datetime.datetime.now()
+
+    finance_news  = fetch_finance_news()
+    trends        = fetch_trends()
+    recent_topics = load_recent_topics(10)
+
+    prompt = DAILY_TOPIC_PROMPT.format(
+        date=now.strftime("%Y-%m-%d"),
+        day=now.strftime("%A"),
+        finance_news=finance_news[:600],
+        trends=trends[:300],
+        recent_topics=", ".join(recent_topics[:5]) or "None yet",
+    )
+
+    raw = call_llm(prompt)
+    try:
+        data = parse_json_response(raw)
+        log(f"  📌 Topic: {data['topic']}")
+        log(f"  🎭 Format: {data['format']}")
+        log(f"  💡 Reason: {data.get('reason','')}")
+        return data
+    except Exception as e:
+        log(f"  ⚠️ JSON parse failed ({e}) — using random evergreen")
+        return {
+            "topic":           random.choice(EVERGREEN_TOPICS),
+            "format":          random.choice(CONTENT_FORMAT_TYPES),
+            "pexels_keyword":  "default",
+            "hook_angle":      "இந்த முக்கியமான தகவல் உங்களுக்கு தெரியுமா?",
+            "reason":          "Fallback",
+        }
+
+
+def generate_script(topic, format_type, hook_angle, voice_gender):
+    log(f"  📝 Script ({format_type}, {voice_gender} voice)...")
+    t0 = time.time()
+    prompt = SCRIPT_PROMPT.format(
+        topic=topic,
+        format_type=format_type,
+        hook_angle=hook_angle,
+        voice_gender=voice_gender,
+    )
+    text = call_llm(prompt)
+
+    # Enforce 2-min cap
+    if len(text) > TARGET_MAX_CHARS:
+        log(f"  Trimming {len(text)} → {TARGET_MAX_CHARS} chars")
+        trimmed = text[:TARGET_MAX_CHARS]
+        for punct in [".\n", ". ", "\n\n"]:
+            idx = trimmed.rfind(punct)
+            if idx > TARGET_MIN_CHARS:
+                trimmed = trimmed[:idx+1]
+                break
+        text = trimmed
+
+    if len(text) < TARGET_MIN_CHARS:
+        log(f"  Script short ({len(text)}), retrying...")
+        retry = prompt + f"\n\nமுக்கியம்: {len(text)} எழுத்துகள் மட்டும். சரியாக 320-360 வார்த்தைகள் (2 நிமிட வீடியோ)."
+        text = call_llm(retry)
+
+    log(f"  Script: {len(text)} chars in {time.time()-t0:.0f}s")
+    return text
+
+
+def generate_subtitles(tamil_script):
+    """Translate Tamil script to English subtitle lines."""
+    log("  🌐 Generating English subtitles...")
+    prompt = SUBTITLE_PROMPT.format(tamil_script=tamil_script[:2000])
+    raw = call_llm(prompt)
+    lines = [l.strip() for l in raw.split("\n") if l.strip()]
+    log(f"  ✅ {len(lines)} subtitle lines")
+    return lines
+
+
+def generate_metadata(topic, format_type, hook_angle):
+    log("  📋 Generating metadata...")
+    prompt = METADATA_PROMPT.format(
+        topic=topic,
+        format_type=format_type,
+        hook_angle=hook_angle,
+    )
+    raw = call_llm(prompt)
+    try:
+        return parse_json_response(raw)
+    except:
+        return {
+            "title":             f"{topic} | {CHANNEL_NAME}",
+            "description":       f"{topic}\n\n#நிதிநீதிதமிழ் #NidhiNeethiTamil",
+            "tags":              "tamil finance, personal finance tamil, cibil score tamil",
+            "pinned_comment":    f"இந்த video பிடித்தால் subscribe செய்யுங்கள் 🔔",
+            "thumbnail_concept": "Professional finance visual with bold Tamil text",
+        }
+
+
+# ═══════════════════════════════════════════════════════════════
+# YOUTUBE AUTH & UPLOAD
+# ═══════════════════════════════════════════════════════════════
+
+def get_authenticated_service():
+    creds = None
+    b64 = os.environ.get("YOUTUBE_TOKEN_BASE64")
+    if b64:
+        try:
+            creds = pickle.loads(base64.b64decode(b64))
+        except: pass
+
+    if not creds and os.path.exists(YOUTUBE_TOKEN_FILE):
+        with open(YOUTUBE_TOKEN_FILE, "rb") as f:
+            creds = pickle.load(f)
+
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            try:
+                creds.refresh(Request())
+            except Exception as e:
+                log(f"⚠️ Token refresh failed: {e}")
+                return None
+        else:
+            if not os.path.exists(YOUTUBE_CLIENT_SECRETS):
+                log(f"⚠️ {YOUTUBE_CLIENT_SECRETS} not found — skipping upload")
+                return None
+            try:
+                flow = InstalledAppFlow.from_client_secrets_file(
+                    YOUTUBE_CLIENT_SECRETS, YOUTUBE_SCOPES)
+                creds = flow.run_local_server(port=8080)
+            except Exception as e:
+                log(f"⚠️ OAuth flow failed: {e}"); return None
+        try:
+            with open(YOUTUBE_TOKEN_FILE, "wb") as f:
+                pickle.dump(creds, f)
+        except: pass
+
+    try:
+        return build("youtube", "v3", credentials=creds)
+    except Exception as e:
+        log(f"⚠️ YouTube service error: {e}"); return None
+
+
+def upload_to_youtube(video_path, metadata, privacy="public"):
+    if not os.path.exists(video_path):
+        log(f"❌ Video not found: {video_path}"); return None
+
+    youtube = get_authenticated_service()
+    if not youtube:
+        log("⚠️ YouTube auth failed — skipping upload"); return None
+
+    body = {
+        "snippet": {
+            "title":       metadata.get("title", "")[:100],
+            "description": metadata.get("description", "")[:5000],
+            "tags":        [t.strip() for t in
+                           metadata.get("tags", "").split(",")][:30],
+            "categoryId":  "27",
+        },
+        "status": {
+            "privacyStatus":           privacy,
+            "selfDeclaredMadeForKids": False,
+        },
+    }
+
+    try:
+        t0 = time.time()
+        req = youtube.videos().insert(
+            part="snippet,status", body=body,
+            media_body=MediaFileUpload(video_path, chunksize=-1, resumable=True))
+        resp = req.execute()
+        vid = resp["id"]
+        log(f"✅ Uploaded: https://youtu.be/{vid} ({time.time()-t0:.0f}s)")
+
+        if metadata.get("pinned_comment"):
+            try:
+                youtube.commentThreads().insert(
+                    part="snippet",
+                    body={"snippet": {"videoId": vid, "topLevelComment": {
+                        "snippet": {"textOriginal": metadata["pinned_comment"]}
+                    }}}).execute()
+                log("  ✅ Pinned comment set")
+            except: pass
+
+        return vid
+    except Exception as e:
+        log(f"❌ Upload failed: {e}"); return None
+
+
+# ═══════════════════════════════════════════════════════════════
+# MAIN PIPELINE
+# ═══════════════════════════════════════════════════════════════
+
+def process_video(topic=None, format_type=None, upload=False, privacy="public"):
+    ensure_dirs()
+    t_start = time.time()
+
+    # Step 1: Decide topic
+    if topic:
+        config = {
+            "topic":          topic,
+            "format":         format_type or random.choice(CONTENT_FORMAT_TYPES),
+            "pexels_keyword": "default",
+            "hook_angle":     "இந்த முக்கியமான தகவல் உங்களுக்கு தெரியுமா?",
+        }
+    else:
+        config = discover_daily_config()
+
+    topic_val     = config["topic"]
+    fmt           = config["format"]
+    pexels_kw     = config.get("pexels_keyword", "default")
+    hook_angle    = config.get("hook_angle", "")
+    gender, _, _  = VOICE_ASSIGNMENT.get(fmt, VOICE_ASSIGNMENT["default"])
+
+    log(f"{'='*55}")
+    log(f"  {CHANNEL_NAME}")
+    log(f"  Topic: {topic_val}")
+    log(f"  Format: {fmt} | Voice: {gender}")
+    log(f"{'='*55}")
+
+    # Step 2: Fetch images
+    safe_name = hashlib.md5(topic_val.encode()).hexdigest()[:10]
+    img_dir   = os.path.join(PEXELS_DIR, safe_name)
+    log("📸 Fetching Pexels images...")
+    images = fetch_pexels_images(pexels_kw, img_dir, count=5)
+    if not images:
+        ensure_fallback_image()
+        images = ["image.png"] if os.path.exists("image.png") else []
+
+    # Step 3: Generate BGM
+    bgm_path = ensure_bgm(fmt)
+
+    # Step 4: Generate script + subtitles + metadata in parallel
+    log("🤖 Generating script + subtitles + metadata (parallel)...")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+        sf  = pool.submit(generate_script, topic_val, fmt, hook_angle, gender)
+        mf  = pool.submit(generate_metadata, topic_val, fmt, hook_angle)
+        script   = sf.result()
+        metadata = mf.result()
+
+    # Subtitles after script is ready
+    subtitle_lines = generate_subtitles(script)
+
+    # Step 5: Save script + metadata
+    title_short = metadata.get("title", topic_val)[:50]
+
+    with open(f"{SCRIPTS_DIR}/{safe_name}.txt", "w", encoding="utf-8") as f:
+        f.write(f"TOPIC: {topic_val}\nFORMAT: {fmt}\n\n{script}")
+
+    meta_data = {
+        "topic": topic_val, "format": fmt, "title": metadata.get("title"),
+        "description": metadata.get("description"),
+        "tags": metadata.get("tags"),
+        "pinned_comment": metadata.get("pinned_comment"),
+        "thumbnail_concept": metadata.get("thumbnail_concept"),
+        "created": datetime.datetime.now().isoformat(),
+    }
+    with open(f"{METADATA_DIR}/{safe_name}.json", "w", encoding="utf-8") as f:
+        json.dump(meta_data, f, ensure_ascii=False, indent=2)
+
+    log(f"  Title: {metadata.get('title','')[:60]}")
+    log(f"  Thumbnail: {metadata.get('thumbnail_concept','')[:80]}")
+
+    # Step 6: Create video
+    log("🎬 Creating video...")
+    video = create_video(
+        script_text=script,
+        english_subtitles=subtitle_lines,
+        images_input=images,
+        output_name=safe_name,
+        format_type=fmt,
+        title_short=title_short,
+        bgm_path=bgm_path,
+    )
+
+    elapsed = time.time() - t_start
+    if video:
+        log(f"✅ VIDEO: {video}")
+        log(f"✅ SHORT: {SHORTS_DIR}/{safe_name}_short.mp4")
+        log(f"⏱️  Total: {elapsed:.0f}s")
+
+        if upload:
+            log("⬆️ Uploading to YouTube...")
+            try:
+                vid = upload_to_youtube(video, metadata, privacy)
+                if vid:
+                    log(f"✅ Live: https://youtu.be/{vid}")
+            except Exception as e:
+                log(f"⚠️ Upload failed (non-fatal): {e}")
+    else:
+        log(f"❌ Video creation failed ({elapsed:.0f}s)")
+
+    return video
+
+
+def auth_youtube():
+    log("Authenticating YouTube...")
+    svc = get_authenticated_service()
+    if svc:
+        log(f"✅ Token saved: {YOUTUBE_TOKEN_FILE}")
+    return svc
+
+
+# ═══════════════════════════════════════════════════════════════
+# DAEMON
+# ═══════════════════════════════════════════════════════════════
+
+def daemon_mode():
+    if not HAS_SCHEDULE:
+        print("pip install schedule"); sys.exit(1)
+
+    log("=" * 55)
+    log(f"  {CHANNEL_NAME} BOT — DAEMON MODE")
+    log(f"  Daily: 05:30 IST generate | 06:00 + 18:30 upload")
+    log("=" * 55)
+
+    def daily_job():
+        log("⏰ Daily job triggered")
+        video = process_video(upload=False)
+        if video:
+            q = load_queue()
+            meta_files = sorted(Path(METADATA_DIR).glob("*.json"), reverse=True)
+            meta = json.loads(meta_files[0].read_text()) if meta_files else {}
+            q.append({"video_path": video, "metadata": meta,
+                      "created": datetime.datetime.now().isoformat(),
+                      "status": "pending"})
+            save_queue(q)
+
+    def upload_job():
+        q = load_queue()
+        pending = [x for x in q if x.get("status") == "pending"]
+        for item in pending:
+            if os.path.exists(item["video_path"]):
+                vid = upload_to_youtube(item["video_path"], item.get("metadata", {}))
+                if vid:
+                    item["status"] = "uploaded"
+                    item["video_id"] = vid
+        save_queue(q)
+
+    schedule.every().day.at("05:30").do(daily_job)
+    schedule.every().day.at("06:00").do(upload_job)
+    schedule.every().day.at("18:30").do(upload_job)
+
+    daily_job()
+    upload_job()
+
+    while True:
+        schedule.run_pending()
+        time.sleep(30)
+
+
+# ═══════════════════════════════════════════════════════════════
+# ENTRY POINT
+# ═══════════════════════════════════════════════════════════════
+
+def main():
+    if not GEMINI_KEY and not GROQ_API_KEY:
+        print("ERROR: Set GEMINI_KEY or GROQ_API_KEY"); sys.exit(1)
+
+    parser = argparse.ArgumentParser(description="நிதி நீதி தமிழ் Bot v1.0")
+    parser.add_argument("--day",          help="today / all")
+    parser.add_argument("--topic",        help="Custom topic in Tamil")
+    parser.add_argument("--format",       help="warning/explainer/rights/comparison/story/news")
+    parser.add_argument("--upload",       action="store_true")
+    parser.add_argument("--privacy",      default="public",
+                        choices=["public", "unlisted", "private"])
+    parser.add_argument("--daemon",       action="store_true")
+    parser.add_argument("--auth-youtube", action="store_true")
+    args = parser.parse_args()
+
+    print(f"\n{'='*55}")
+    print(f"  {CHANNEL_NAME} — Automation Bot v1.0")
+    print(f"  2-min videos · English subs · Male+Female voices")
+    print(f"{'='*55}\n")
+
+    if args.auth_youtube:
+        auth_youtube(); return
+
+    if args.daemon:
+        daemon_mode(); return
+
+    if args.topic:
+        process_video(topic=args.topic, format_type=args.format,
+                      upload=args.upload, privacy=args.privacy)
+    elif args.day:
+        process_video(upload=args.upload, privacy=args.privacy)
+    else:
+        print("Usage:")
+        print("  python nidhi_neethi_bot.py --day today")
+        print("  python nidhi_neethi_bot.py --day today --upload")
+        print("  python nidhi_neethi_bot.py --topic 'CIBIL score எப்படி சரிசெய்வது'")
+        print("  python nidhi_neethi_bot.py --daemon")
+        print("  python nidhi_neethi_bot.py --auth-youtube")
+
+    print(f"\n{'='*55}")
+    print(f"  Done! Check: studio.youtube.com")
+    print(f"{'='*55}\n")
+
+
+if __name__ == "__main__":
+    main()
