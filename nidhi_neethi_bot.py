@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
 ╔══════════════════════════════════════════════════════════════════╗
-║          நிதி நீதி தமிழ் — FULLY AUTOMATED BOT v1.4            ║
+║          நிதி நீதி தமிழ் — FULLY AUTOMATED BOT v1.5            ║
 ║  Tamil Finance & Legal Rights YouTube Channel                   ║
-║  Playlists · SEO chapters · Character overlay · v1.2           ║
+║  MCQ · Series · Source cite · Bilingual · Update checks        ║
 ║  Auto topic · Pexels visuals · YouTube upload · Daily 6AM IST  ║
 ╚══════════════════════════════════════════════════════════════════╝
 
@@ -1121,7 +1121,8 @@ def build_video_filter(images, total_frames, fps=25, seed=0):
 
 
 def create_video(script_text, english_subtitles, images_input, output_name,
-                 format_type="default", title_short="", bgm_path=None):
+                 format_type="default", title_short="", bgm_path=None,
+                 source_citation="", topic_val=""):
     ensure_dirs()
     ensure_fallback_image()
 
@@ -1244,7 +1245,21 @@ def create_video(script_text, english_subtitles, images_input, output_name,
     if not srt_created:
         shutil.copy(working, video_file)
 
-    log("🎨 Step 7/8 Brand overlays (logo watermark + intro + outro)...")
+    log("🔤 Step 7/8 Source citation + bilingual hook + brand overlays...")
+
+    # Step 7a: Source citation overlay (Beat 2 — 15s to 75s)
+    citation_file = f"/tmp/{output_name}_citation.mp4"
+    add_source_overlay(video_file, citation_file, source_citation, total_dur)
+    if os.path.exists(citation_file) and os.path.getsize(citation_file) > 0:
+        shutil.move(citation_file, video_file)
+
+    # Step 7b: Bilingual English hook (first 5 seconds)
+    bilingual_file = f"/tmp/{output_name}_bilingual.mp4"
+    add_bilingual_hook_overlay(video_file, bilingual_file, topic_val, format_type)
+    if os.path.exists(bilingual_file) and os.path.getsize(bilingual_file) > 0:
+        shutil.move(bilingual_file, video_file)
+
+    log("🎨 Brand overlays (logo watermark + intro + outro)...")
 
     # Step 7a: Logo watermark — bottom-right corner, always visible
     if os.path.exists(LOGO_WATERMARK):
@@ -1403,6 +1418,23 @@ def generate_script(topic, format_type, hook_angle, voice_gender):
 
     log(f"  ✅ Script: {len(text)} chars in {time.time()-t0:.0f}s")
     return text
+
+
+def generate_mcq(topic, script):
+    """Generate an MCQ quiz question from the video script."""
+    try:
+        # Extract a key fact from script (first 500 chars has the hook + key claim)
+        key_fact = script[:500].strip()
+        prompt = MCQ_PROMPT.format(topic=topic, key_fact=key_fact)
+        raw = call_llm(prompt).strip()
+        # Validate it has MCQ structure
+        if "A)" in raw and "B)" in raw and "comment" in raw.lower():
+            log(f"  ✅ MCQ generated")
+            return raw
+        return ""
+    except Exception as e:
+        log(f"  ⚠️ MCQ generation failed: {e}")
+        return ""
 
 
 def generate_subtitles(tamil_script):
@@ -1605,6 +1637,396 @@ def add_video_to_playlist(youtube, video_id, topic, format_type):
     except Exception as e:
         log(f"  ⚠️ Playlist add failed: {e}")
 
+
+MCQ_PROMPT = """Generate a fun multiple-choice quiz question for a Tamil YouTube finance video.
+
+Topic: {topic}
+Key fact from video: {key_fact}
+
+Rules:
+1. Question must test ONE specific fact from this exact topic
+2. 4 options (A, B, C, D) — only one correct
+3. Options must be plausible — not obviously wrong
+4. Write entirely in Tamil (numbers in English are OK)
+5. Keep it short — max 3 lines total
+6. End with "சரியான answer comment பண்ணுங்கள் 👇"
+
+Format exactly like this:
+[Question in Tamil]?
+A) [option]  B) [option]
+C) [option]  D) [option]
+சரியான answer comment பண்ணுங்கள் 👇
+
+Return ONLY the quiz text, nothing else."""
+
+# ═══════════════════════════════════════════════════════════════
+# SERIES FORMAT — auto-detect and link related videos
+# ═══════════════════════════════════════════════════════════════
+
+SERIES_FILE = "video_series.json"
+
+SERIES_TOPIC_GROUPS = {
+    "cibil":       ["cibil", "credit score", "கிரெடிட்", "loan eligibility"],
+    "loan":        ["loan", "கடன்", "emi", "interest", "வட்டி", "personal loan", "home loan"],
+    "investment":  ["mutual fund", "sip", "fd", "rd", "investment", "முதலீடு", "stock"],
+    "rights":      ["rights", "உரிமை", "consumer court", "complaint", "rti", "police"],
+    "fraud":       ["fraud", "மோசடி", "scam", "upi fraud", "phishing", "fake"],
+    "tax":         ["tax", "வரி", "income tax", "gst", "itr", "pan"],
+    "insurance":   ["insurance", "காப்பீடு", "claim", "health insurance", "life insurance"],
+    "bank":        ["bank", "வங்கி", "account", "savings", "atm", "net banking"],
+}
+
+
+def detect_series_group(topic):
+    """Detect which series group this topic belongs to."""
+    topic_lower = topic.lower()
+    for group, keywords in SERIES_TOPIC_GROUPS.items():
+        if any(kw in topic_lower for kw in keywords):
+            return group
+    return None
+
+
+def load_series_data():
+    if os.path.exists(SERIES_FILE):
+        with open(SERIES_FILE) as f:
+            return json.load(f)
+    return {}
+
+
+def save_series_data(data):
+    with open(SERIES_FILE, "w") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    # Commit to git so it persists across CI runs
+    try:
+        run(["git", "add", SERIES_FILE])
+        run(["git", "commit", "-m", "chore: update series data"])
+        run(["git", "push"])
+    except:
+        pass
+
+
+def get_series_info(topic, video_id=None):
+    """
+    Returns (part_number, total_in_series, series_title, prev_video_id).
+    Adds this video to series tracking.
+    """
+    group = detect_series_group(topic)
+    if not group:
+        return None, None, None, None
+
+    data = load_series_data()
+    if group not in data:
+        data[group] = []
+
+    series = data[group]
+    part_num = len(series) + 1
+
+    # Build series title
+    series_titles = {
+        "cibil":      "CIBIL Score முழு வழிகாட்டி",
+        "loan":       "கடன் அறிவு தொடர்",
+        "investment": "முதலீடு அடிப்படை தொடர்",
+        "rights":     "உங்கள் உரிமைகள் தொடர்",
+        "fraud":      "மோசடி எச்சரிக்கை தொடர்",
+        "tax":        "வரி அறிவு தொடர்",
+        "insurance":  "காப்பீடு வழிகாட்டி தொடர்",
+        "bank":       "வங்கி அறிவு தொடர்",
+    }
+    series_title = series_titles.get(group, f"{group} தொடர்")
+
+    prev_video_id = series[-1]["video_id"] if series else None
+
+    if video_id:
+        series.append({
+            "part":     part_num,
+            "topic":    topic,
+            "video_id": video_id,
+            "date":     datetime.datetime.now().isoformat(),
+        })
+        data[group] = series
+        save_series_data(data)
+
+    return part_num, len(series), series_title, prev_video_id
+
+
+def build_series_end_card(part_num, series_title, prev_video_id):
+    """Returns text to append to description for series navigation."""
+    if part_num == 1:
+        return f"\n\n📚 இது '{series_title}' தொடரின் முதல் பாகம்."
+    else:
+        prev_url = f"https://youtu.be/{prev_video_id}" if prev_video_id else ""
+        return (
+            f"\n\n📚 {series_title} — பாகம் {part_num}\n"
+            f"முந்தைய பாகம்: {prev_url}"
+        )
+
+
+def build_series_script_ending(part_num, series_title, next_topic_hint=""):
+    """Returns script lines to append for series continuity."""
+    if part_num == 1:
+        return f"இது {series_title} தொடரின் முதல் பாகம். அடுத்த பாகம் விரைவில் வருகிறது."
+    return ""
+
+
+# ═══════════════════════════════════════════════════════════════
+# SOURCE CITATION — credibility overlay during core info beat
+# ═══════════════════════════════════════════════════════════════
+
+SOURCE_PROMPT = """Given this Tamil finance video topic, identify the authoritative source.
+
+Topic: {topic}
+Format: {format_type}
+
+Return ONLY a short source attribution (max 40 chars English):
+- For RBI-related: "Source: RBI.org.in"
+- For consumer rights: "Source: ConsumerAffairs.nic.in"
+- For tax: "Source: IncomeTax.gov.in"
+- For EPFO/PF: "Source: EPFO.gov.in"
+- For SEBI/investments: "Source: SEBI.gov.in"
+- For insurance: "Source: IRDAI.gov.in"
+- For general finance: "Source: RBI.org.in"
+- For legal/consumer court: "Source: NCDRCIndia.nic.in"
+
+Return ONLY the source string, nothing else."""
+
+
+def get_source_citation(topic, format_type):
+    """Get the authoritative source for this topic."""
+    try:
+        prompt = SOURCE_PROMPT.format(topic=topic, format_type=format_type)
+        raw = call_llm(prompt).strip().strip('"').strip("'")
+        # Validate it looks like a source
+        if "Source:" in raw and len(raw) < 50:
+            return raw
+        return "Source: RBI.org.in"
+    except:
+        return "Source: RBI.org.in"
+
+
+def add_source_overlay(video_in, video_out, source_text, total_dur):
+    """
+    Add source citation badge during Beat 2 (15s-75s).
+    Small text bottom-left, semi-transparent — builds trust without distraction.
+    """
+    safe_source = source_text.replace("'", "").replace(":", " -")
+    # Show during core info beat: 15s to min(75s, total_dur-5s)
+    show_start = 15
+    show_end   = min(75, total_dur - 5)
+
+    if show_end <= show_start:
+        shutil.copy(video_in, video_out)
+        return False
+
+    vf = (
+        f"drawtext=text='{safe_source}':fontsize=18:"
+        f"fontcolor=white@0.70:x=20:y=h-45:"
+        f"shadowcolor=black@0.8:shadowx=1:shadowy=1:"
+        f"enable='between(t,{show_start},{show_end:.0f})'"
+    )
+    r = run(["ffmpeg", "-y", "-i", video_in,
+             "-vf", vf,
+             "-c:v", "libx264", "-preset", "veryfast", "-crf", "24",
+             "-c:a", "copy", video_out], timeout=200)
+    if r.returncode == 0:
+        log(f"  ✅ Source citation: {source_text}")
+        return True
+    shutil.copy(video_in, video_out)
+    return False
+
+
+# ═══════════════════════════════════════════════════════════════
+# BILINGUAL HOOK — English text overlay for first 5 seconds
+# Catches non-Tamil search traffic + YouTube English indexing
+# ═══════════════════════════════════════════════════════════════
+
+def add_bilingual_hook_overlay(video_in, video_out, topic, format_type):
+    """
+    Show English hook text for first 5 seconds of video.
+    This helps YouTube index the video for English search terms.
+    """
+    # Map format to English hook phrase
+    hooks = {
+        "warning":    "MUST WATCH before you apply for a loan",
+        "explainer":  "Complete guide explained in Tamil",
+        "rights":     "Know your legal rights — explained in Tamil",
+        "comparison": "Which is better? Find out in Tamil",
+        "story":      "Real story — what happened and what you can learn",
+        "news":       "Breaking finance news explained in Tamil",
+    }
+    hook_phrase = hooks.get(format_type, "Tamil finance guide")
+
+    # Shorten topic for English subtitle
+    topic_en_words = topic.replace("?", "").strip()[:30]
+
+    safe_hook = hook_phrase.replace("'", "").replace(":", " -")
+
+    vf = (
+        f"drawtext=text='{safe_hook}':fontsize=28:"
+        f"fontcolor=yellow@0.95:x=(w-tw)/2:y=40:"
+        f"shadowcolor=black@0.9:shadowx=2:shadowy=2:"
+        f"enable='between(t,0,5)'"
+    )
+    r = run(["ffmpeg", "-y", "-i", video_in,
+             "-vf", vf,
+             "-c:v", "libx264", "-preset", "veryfast", "-crf", "24",
+             "-c:a", "copy", video_out], timeout=200)
+    if r.returncode == 0:
+        log(f"  ✅ Bilingual hook: {hook_phrase}")
+        return True
+    shutil.copy(video_in, video_out)
+    return False
+
+
+# ═══════════════════════════════════════════════════════════════
+# UPDATE COMMENT BOT — checks old videos for outdated facts
+# Run separately: python nidhi_neethi_bot.py --check-updates
+# ═══════════════════════════════════════════════════════════════
+
+UPDATE_CHECK_FILE = "update_checks.json"
+
+UPDATE_CHECK_PROMPT = """You are a Tamil finance fact-checker.
+
+Old video topic: {topic}
+Video published: {date}
+Current date: {today}
+
+Based on the topic, check if any of these might have changed since publication:
+- RBI repo rate or bank interest rates
+- CIBIL score requirements
+- Consumer protection laws
+- Tax slabs or deductions
+- EPF/PF rules
+- Insurance regulations
+
+Return JSON only:
+{{
+  "needs_update": true/false,
+  "update_comment": "<Tamil comment under 200 chars if update needed, else empty string>",
+  "reason": "<brief English reason>"
+}}
+
+If needs_update is false, return empty string for update_comment."""
+
+
+def load_update_checks():
+    if os.path.exists(UPDATE_CHECK_FILE):
+        with open(UPDATE_CHECK_FILE) as f:
+            return json.load(f)
+    return {}
+
+
+def save_update_checks(data):
+    with open(UPDATE_CHECK_FILE, "w") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    try:
+        run(["git", "add", UPDATE_CHECK_FILE])
+        run(["git", "commit", "-m", "chore: update checks log"])
+        run(["git", "push"])
+    except:
+        pass
+
+
+def post_update_comment(youtube, video_id, comment_text):
+    """Post an update comment on a video."""
+    try:
+        youtube.commentThreads().insert(
+            part="snippet",
+            body={"snippet": {"videoId": video_id, "topLevelComment": {
+                "snippet": {"textOriginal": comment_text}
+            }}}).execute()
+        log(f"  ✅ Update comment posted on {video_id}")
+        return True
+    except Exception as e:
+        log(f"  ⚠️ Comment failed: {e}")
+        return False
+
+
+def run_update_checks():
+    """
+    Check all tracked videos for outdated information.
+    Posts update comments on videos where facts may have changed.
+    Only checks videos older than 30 days, max 5 per run.
+    """
+    log("🔄 Running update checks on published videos...")
+    youtube = get_authenticated_service()
+    if not youtube:
+        log("⚠️ YouTube auth required for update checks")
+        return
+
+    checks = load_update_checks()
+    today  = datetime.datetime.now().strftime("%Y-%m-%d")
+
+    # Load published video history from metadata dir
+    if not os.path.isdir(METADATA_DIR):
+        log("No metadata found — skipping update checks")
+        return
+
+    checked = 0
+    for meta_file in sorted(Path(METADATA_DIR).glob("*.json"), reverse=True):
+        if checked >= 5:
+            break
+        try:
+            meta = json.loads(meta_file.read_text())
+            vid_id = meta.get("video_id", "")
+            topic  = meta.get("topic", "")
+            date   = meta.get("created", "")[:10]
+
+            if not vid_id or not topic or not date:
+                continue
+
+            # Skip recently published (< 30 days)
+            try:
+                pub_date = datetime.datetime.fromisoformat(date)
+                days_old = (datetime.datetime.now() - pub_date).days
+                if days_old < 30:
+                    continue
+            except:
+                continue
+
+            # Skip already checked recently (within 7 days)
+            last_check = checks.get(vid_id, {}).get("last_check", "")
+            if last_check:
+                try:
+                    lc = datetime.datetime.fromisoformat(last_check)
+                    if (datetime.datetime.now() - lc).days < 7:
+                        continue
+                except:
+                    pass
+
+            log(f"  Checking: {topic[:50]} ({days_old} days old)")
+            prompt = UPDATE_CHECK_PROMPT.format(
+                topic=topic, date=date, today=today)
+            raw = call_llm(prompt)
+
+            try:
+                result = parse_json_response(raw)
+                checks[vid_id] = {
+                    "last_check":    today,
+                    "needs_update":  result.get("needs_update", False),
+                    "reason":        result.get("reason", ""),
+                }
+
+                if result.get("needs_update") and result.get("update_comment"):
+                    comment = (
+                        f"📢 UPDATE ({today}): {result['update_comment']}\n"
+                        f"நிதி நீதி தமிழ் — புதுப்பிக்கப்பட்ட தகவல்"
+                    )
+                    post_update_comment(youtube, vid_id, comment)
+                    log(f"  ✅ Update: {result.get('reason','')}")
+                else:
+                    log(f"  ✅ No update needed: {result.get('reason','up to date')}")
+
+                checked += 1
+
+            except Exception as e:
+                log(f"  ⚠️ Parse failed: {e}")
+
+        except Exception as e:
+            log(f"  ⚠️ Check failed: {e}")
+
+    save_update_checks(checks)
+    log(f"✅ Update checks done ({checked} videos checked)")
+
 # ═══════════════════════════════════════════════════════════════
 # YOUTUBE AUTH & UPLOAD
 # ═══════════════════════════════════════════════════════════════
@@ -1695,6 +2117,20 @@ def upload_to_youtube(video_path, metadata, privacy="public"):
         format_type = metadata.get("format", "default")
         add_video_to_playlist(youtube, vid, topic_val, format_type)
 
+        # Register video_id in series tracker
+        get_series_info(topic_val, video_id=vid)
+
+        # Save video_id into metadata file for update checker
+        safe = hashlib.md5(topic_val.encode()).hexdigest()[:10]
+        meta_path = f"{METADATA_DIR}/{safe}.json"
+        if os.path.exists(meta_path):
+            try:
+                m = json.loads(Path(meta_path).read_text())
+                m["video_id"] = vid
+                Path(meta_path).write_text(
+                    json.dumps(m, ensure_ascii=False, indent=2))
+            except: pass
+
         return vid
     except Exception as e:
         log(f"❌ Upload failed: {e}"); return None
@@ -1751,15 +2187,36 @@ def process_video(topic=None, format_type=None, upload=False, privacy="public"):
     log("🤖 Step 1: Generating script...")
     script = generate_script(topic_val, fmt, hook_angle, gender)
 
-    log("🤖 Step 2: Generating subtitles + metadata (parallel)...")
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-        sf = pool.submit(generate_subtitles, script)
-        mf = pool.submit(generate_metadata, topic_val, fmt, hook_angle)
+    log("🤖 Step 2: Generating subtitles + metadata + MCQ (parallel)...")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+        sf  = pool.submit(generate_subtitles, script)
+        mf  = pool.submit(generate_metadata, topic_val, fmt, hook_angle)
+        mcf = pool.submit(generate_mcq, topic_val, script)
         subtitle_lines = sf.result()
         metadata       = mf.result()
+        mcq_text       = mcf.result()
+
+    # Merge MCQ into pinned comment
+    if mcq_text:
+        existing_pin = metadata.get("pinned_comment", "")
+        metadata["pinned_comment"] = f"{mcq_text}\n\n{existing_pin}".strip()
+        log(f"  ✅ MCQ added to pinned comment")
 
     # Step 5: Save script + metadata
     title_short = metadata.get("title", topic_val)[:50]
+
+    # Series detection — enrich description with series navigation
+    part_num, series_len, series_title, prev_vid = get_series_info(topic_val)
+    if part_num and part_num > 1:
+        series_end = build_series_end_card(part_num, series_title, prev_vid)
+        metadata["description"] = metadata.get("description", "") + series_end
+        title_short = f"பாகம் {part_num}: {title_short}"
+        log(f"  📚 Series: {series_title} — Part {part_num}")
+    elif part_num == 1:
+        log(f"  📚 New series started: {series_title}")
+
+    # Source citation for trust overlay
+    source_citation = get_source_citation(topic_val, fmt)
 
     with open(f"{SCRIPTS_DIR}/{safe_name}.txt", "w", encoding="utf-8") as f:
         f.write(f"TOPIC: {topic_val}\nFORMAT: {fmt}\n\n{script}")
@@ -1791,6 +2248,8 @@ def process_video(topic=None, format_type=None, upload=False, privacy="public"):
         format_type=fmt,
         title_short=title_short,
         bgm_path=bgm_path,
+        source_citation=source_citation,
+        topic_val=topic_val,
     )
 
     elapsed = time.time() - t_start
@@ -1895,6 +2354,9 @@ def main():
 
     if args.auth_youtube:
         auth_youtube(); return
+
+    if args.check_updates:
+        run_update_checks(); return
 
     if args.daemon:
         daemon_mode(); return

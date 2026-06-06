@@ -1,0 +1,60 @@
+name: Weekly Update Checks
+
+on:
+  schedule:
+    - cron: "0 3 * * 0"   # Sunday 8:30 AM IST
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  GEMINI_KEY:             ${{ secrets.GEMINI_KEY }}
+  GROQ_API_KEY:           ${{ secrets.GROQ_API_KEY }}
+  YOUTUBE_TOKEN_BASE64:   ${{ secrets.YOUTUBE_TOKEN_BASE64 }}
+  CLIENT_SECRETS_BASE64:  ${{ secrets.CLIENT_SECRETS_BASE64 }}
+
+jobs:
+  update_checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          pip install --quiet google-genai groq \
+            google-api-python-client google-auth-oauthlib requests beautifulsoup4
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Restore YouTube token
+        run: |
+          if [ -n "$YOUTUBE_TOKEN_BASE64" ]; then
+            echo "$YOUTUBE_TOKEN_BASE64" | base64 -d > youtube_token.pickle
+            echo "Token restored"
+          fi
+          if [ -n "$CLIENT_SECRETS_BASE64" ]; then
+            echo "$CLIENT_SECRETS_BASE64" | base64 -d > client_secrets.json
+          fi
+
+      - name: Run update checks
+        run: python3 nidhi_neethi_bot.py --check-updates
+
+      - name: Commit updated logs
+        run: |
+          git config user.email "bot@nidhineethitamil.com"
+          git config user.name  "Nidhi Neethi Bot"
+          git add update_checks.json video_series.json used_topics.txt || true
+          git diff --staged --quiet || git commit -m "chore: weekly update checks $(date +%Y-%m-%d)"
+          git push || echo "Nothing to push"
+
+      - name: Show summary
+        if: always()
+        run: |
+          echo "=== Update checks ===" && cat update_checks.json 2>/dev/null || echo "none"
+          echo "=== Series data ===" && cat video_series.json 2>/dev/null || echo "none"
