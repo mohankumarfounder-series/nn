@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ╔══════════════════════════════════════════════════════════════════╗
-║          நிதி நீதி தமிழ் — FULLY AUTOMATED BOT v1.3            ║
+║          நிதி நீதி தமிழ் — FULLY AUTOMATED BOT v1.4            ║
 ║  Tamil Finance & Legal Rights YouTube Channel                   ║
 ║  Playlists · SEO chapters · Character overlay · v1.2           ║
 ║  Auto topic · Pexels visuals · YouTube upload · Daily 6AM IST  ║
@@ -812,6 +812,15 @@ def build_text_overlay(title_short, format_type):
 # ═══════════════════════════════════════════════════════════════
 
 CHARACTER_DIR = "assets/character"
+BRAND_DIR      = "assets/brand"
+
+# Brand asset paths
+LOGO_WATERMARK = f"{BRAND_DIR}/logo_watermark.png"  # 120x120 transparent
+INTRO_FRAME    = f"{BRAND_DIR}/intro_frame.png"      # 1920x1080 logo on teal
+OUTRO_FRAME    = f"{BRAND_DIR}/outro_frame.png"      # 1920x1080 banner
+
+INTRO_DURATION = 2.0   # seconds — logo sting at start
+OUTRO_DURATION = 3.0   # seconds — banner + subscribe at end
 
 # Which pose to use at each beat timestamp
 # Beat 1 (0-15s): hook   → warning or explaining depending on format
@@ -828,6 +837,84 @@ POSE_BY_FORMAT_AND_BEAT = {
     "news":       ["explaining", "explaining", "neutral",     "neutral"],
     "default":    ["explaining", "explaining", "celebrating", "neutral"],
 }
+
+
+def make_intro_clip(output_path):
+    """2s logo sting: intro_frame.png + bell sound."""
+    if not os.path.exists(INTRO_FRAME):
+        return None
+    # Bell tone
+    bell = f"/tmp/brand_bell.mp3"
+    run(["ffmpeg", "-y", "-f", "lavfi",
+         "-i", "sine=frequency=880:duration=2.5",
+         "-f", "lavfi", "-i", "sine=frequency=1320:duration=2.5",
+         "-filter_complex",
+         "[0:a]volume=0.5,afade=t=out:st=1.5:d=1[b1];"
+         "[1:a]volume=0.3,afade=t=out:st=1.2:d=1[b2];"
+         "[b1][b2]amix=inputs=2[bell]",
+         "-map", "[bell]", bell], timeout=15)
+
+    cmd = ["ffmpeg", "-y",
+           "-loop", "1", "-t", str(INTRO_DURATION), "-i", INTRO_FRAME]
+    if os.path.exists(bell):
+        cmd.extend(["-i", bell,
+                    "-filter_complex",
+                    f"[0:v]scale=1920:1080,fade=t=in:st=0:d=0.5,"
+                    f"fade=t=out:st={INTRO_DURATION-0.5}:d=0.5[v]",
+                    "-map", "[v]", "-map", "1:a"])
+    else:
+        cmd.extend(["-filter_complex",
+                    f"[0:v]scale=1920:1080,fade=t=in:st=0:d=0.5,"
+                    f"fade=t=out:st={INTRO_DURATION-0.5}:d=0.5[v]",
+                    "-map", "[v]",
+                    "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+                    "-map", "1:a", "-t", str(INTRO_DURATION)])
+    cmd.extend(["-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+                "-pix_fmt", "yuv420p", "-c:a", "aac",
+                "-t", str(INTRO_DURATION), output_path])
+    r = run(cmd, timeout=30)
+    return output_path if r.returncode == 0 else None
+
+
+def make_outro_clip(output_path):
+    """3s brand outro: banner frame with subscribe text."""
+    if not os.path.exists(OUTRO_FRAME):
+        return None
+    text_filter = (
+        "drawtext=text='Subscribe பண்ணுங்கள் 🔔':fontsize=52:"
+        "fontcolor=white@0.95:x=(w-tw)/2:y=h-120:"
+        "shadowcolor=black@0.9:shadowx=3:shadowy=3,"
+        "drawtext=text='@NidhiNeethiTamil':fontsize=36:"
+        "fontcolor=gold@0.9:x=(w-tw)/2:y=h-65:"
+        "shadowcolor=black@0.8:shadowx=2:shadowy=2"
+    )
+    r = run(["ffmpeg", "-y",
+             "-loop", "1", "-t", str(OUTRO_DURATION), "-i", OUTRO_FRAME,
+             "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+             "-filter_complex",
+             f"[0:v]scale=1920:1080,"
+             f"fade=t=in:st=0:d=0.5,"
+             f"fade=t=out:st={OUTRO_DURATION-0.5}:d=0.5,"
+             f"{text_filter}[v]",
+             "-map", "[v]", "-map", "1:a",
+             "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+             "-pix_fmt", "yuv420p", "-c:a", "aac",
+             "-t", str(OUTRO_DURATION), output_path], timeout=30)
+    return output_path if r.returncode == 0 else None
+
+
+def concat_clips(clips, output_path):
+    """Concatenate multiple video clips into one."""
+    # Write filelist
+    flist = f"/tmp/concat_{os.path.basename(output_path)}.txt"
+    with open(flist, "w") as f:
+        for c in clips:
+            f.write(f"file '{os.path.abspath(c)}'\n")
+    r = run(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+             "-i", flist, "-c", "copy", output_path], timeout=120)
+    try: os.remove(flist)
+    except: pass
+    return r.returncode == 0
 
 
 def ensure_character_assets():
@@ -1095,7 +1182,9 @@ def create_video(script_text, english_subtitles, images_input, output_name,
     else:
         images = []
 
-    if not images and os.path.exists("image.png"):
+    if not images and os.path.exists(OUTRO_FRAME):
+        images = [OUTRO_FRAME]   # use brand banner as fallback bg
+    elif not images and os.path.exists("image.png"):
         images = ["image.png"]
     if not images:
         log("❌ No images"); return None
@@ -1155,11 +1244,52 @@ def create_video(script_text, english_subtitles, images_input, output_name,
     if not srt_created:
         shutil.copy(working, video_file)
 
-    log("🎭 Step 7/8 Character overlay...")
-    char_file  = f"/tmp/{output_name}_char.mp4"
-    overlay_character_on_video(video_file, char_file, format_type, total_dur)
-    if os.path.exists(char_file) and os.path.getsize(char_file) > 0:
-        shutil.move(char_file, video_file)
+    log("🎨 Step 7/8 Brand overlays (logo watermark + intro + outro)...")
+
+    # Step 7a: Logo watermark — bottom-right corner, always visible
+    if os.path.exists(LOGO_WATERMARK):
+        wm_file = f"/tmp/{output_name}_wm.mp4"
+        r_wm = run(["ffmpeg", "-y",
+                    "-i", video_file, "-i", LOGO_WATERMARK,
+                    "-filter_complex",
+                    "overlay=W-130:H-130:format=auto",
+                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "24",
+                    "-c:a", "copy", wm_file], timeout=300)
+        if r_wm.returncode == 0:
+            shutil.move(wm_file, video_file)
+            log("  ✅ Logo watermark added")
+        else:
+            log("  ⚠️ Watermark failed — skipping")
+
+    # Step 7b: Build intro + outro clips, then concat
+    intro_clip = f"/tmp/{output_name}_intro.mp4"
+    outro_clip = f"/tmp/{output_name}_outro.mp4"
+    final_clip = f"/tmp/{output_name}_final.mp4"
+
+    has_intro = make_intro_clip(intro_clip)
+    has_outro = make_outro_clip(outro_clip)
+
+    clips = []
+    if has_intro and os.path.exists(intro_clip):
+        clips.append(intro_clip)
+    clips.append(video_file)
+    if has_outro and os.path.exists(outro_clip):
+        clips.append(outro_clip)
+
+    if len(clips) > 1:
+        ok = concat_clips(clips, final_clip)
+        if ok and os.path.exists(final_clip):
+            shutil.move(final_clip, video_file)
+            log(f"  ✅ Intro({has_intro and INTRO_DURATION}s) + content + Outro({has_outro and OUTRO_DURATION}s) combined")
+        else:
+            log("  ⚠️ Concat failed — using content-only video")
+    else:
+        log("  ℹ️  No brand assets found — using content-only video")
+
+    for f in [intro_clip, outro_clip, final_clip]:
+        try:
+            if os.path.exists(f): os.remove(f)
+        except: pass
 
     log("📱 Step 8/8 Shorts (9:16 reframe)...")
     run(["ffmpeg", "-y", "-i", video_file, "-ss", "0", "-t", "58",
