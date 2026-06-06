@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ╔══════════════════════════════════════════════════════════════════╗
-║          நிதி நீதி தமிழ் — FULLY AUTOMATED BOT v1.2            ║
+║          நிதி நீதி தமிழ் — FULLY AUTOMATED BOT v1.3            ║
 ║  Tamil Finance & Legal Rights YouTube Channel                   ║
 ║  Playlists · SEO chapters · Character overlay · v1.2           ║
 ║  Auto topic · Pexels visuals · YouTube upload · Daily 6AM IST  ║
@@ -209,25 +209,43 @@ CONTENT_FORMAT_TYPES = [
 
 DAILY_TOPIC_PROMPT = """You are a content strategist for "நிதி நீதி தமிழ்" — a Tamil YouTube channel covering personal finance and legal rights for middle-class Tamil people.
 
+YOUR AUDIENCE: Salaried Tamil people aged 25-45, earning ₹20,000-₹80,000/month. They worry about loans, CIBIL scores, savings, job rights, bank frauds, and government schemes. They are NOT financial experts.
+
 TODAY: {date} | {day}
-RECENT RBI/SEBI NEWS: {finance_news}
+FINANCE NEWS (raw — needs viewer-friendly translation): {finance_news}
 TRENDING SEARCHES: {trends}
-RECENT EVERGREEN TOPICS (avoid repeating these recently used ones): {recent_topics}
+RECENTLY USED TOPICS (DO NOT repeat any of these): {recent_topics}
 
-Pick the SINGLE BEST video topic for today. Priority order:
-1. Breaking RBI/SEBI/court news affecting common Tamil people today
-2. Month-specific finance events (tax season, budget period, salary season)
-3. High-search evergreen topic not covered recently
+STEP 1 — NEWS TRANSLATION RULE:
+If using news, NEVER use raw RBI/SEBI jargon as the topic.
+Translate it to viewer impact. Examples:
+  ❌ BAD: "RBI விற்கு VRR ஏலம் அறிவிப்பு" (meaningless to viewer)
+  ✅ GOOD: "RBI வட்டி விகிதம் மாறினால் உங்கள் EMI என்னாகும்?" (viewer impact)
+  ❌ BAD: "SEBI circular on mutual fund NAV"
+  ✅ GOOD: "Mutual Fund-ல் பணம் போட்டால் இப்போது safe-ஆ? SEBI புதிய விதி"
 
-FORMAT types to choose from: warning / explainer / rights / comparison / story / news
+STEP 2 — TOPIC QUALITY CHECK:
+Before finalising, ask: "Will a 30-year-old Chennai office employee immediately want to watch this?"
+If no → pick a different topic.
 
-Return ONLY valid JSON:
+STEP 3 — FORMAT SELECTION:
+- warning: fraud alerts, EMI traps, loan dangers (high CTR)
+- explainer: how SIP works, what CIBIL means (educational)
+- rights: consumer court, bank complaint, RTI (empowering)
+- comparison: FD vs RD, loan types (analytical)
+- story: real situation → problem → solution (emotional)
+- news: RBI/govt decision translated to viewer impact (timely)
+
+STEP 4 — UNIQUENESS CHECK:
+The recently used topics above must NOT be repeated even in different phrasing.
+
+Return ONLY valid JSON, nothing else:
 {{
-  "topic": "<specific clickable Tamil topic>",
-  "format": "<one of: warning/explainer/rights/comparison/story/news>",
-  "pexels_keyword": "<one English keyword for image search: loan/cibil/investment/fraud/legal/tax/insurance/rights/bank/salary/rbi>",
-  "hook_angle": "<one sentence — the emotional hook for first 5 seconds>",
-  "reason": "<why this topic is best today>"
+  "topic": "<Viewer-friendly Tamil topic — clickable, specific, emotionally relevant>",
+  "format": "<warning/explainer/rights/comparison/story/news>",
+  "pexels_keyword": "<loan/cibil/investment/fraud/legal/tax/insurance/rights/bank/salary/rbi>",
+  "hook_angle": "<First 5 seconds — the exact fear or curiosity you trigger>",
+  "reason": "<Why this topic today, why this format>"
 }}"""
 
 SCRIPT_PROMPT = """You are a professional Tamil YouTube scriptwriter for "நிதி நீதி தமிழ்" — a finance and legal rights channel trusted by Tamil middle-class families.
@@ -432,17 +450,63 @@ def save_queue(q):
         json.dump(q, f, indent=2)
 
 
-def load_recent_topics(n=10):
+USED_TOPICS_FILE = "used_topics.txt"
+
+def load_recent_topics(n=20):
+    """
+    Load recently used topics from used_topics.txt (committed to git).
+    This file persists across GitHub Actions runs — solves stateless CI problem.
+    Falls back to metadata/ folder for local runs.
+    """
     topics = []
-    if os.path.isdir(METADATA_DIR):
+    # Primary: committed file (works on CI)
+    if os.path.exists(USED_TOPICS_FILE):
+        with open(USED_TOPICS_FILE, encoding="utf-8") as f:
+            lines = [l.strip() for l in f.readlines() if l.strip()]
+        topics = lines[-n:]  # most recent n topics
+    # Fallback: local metadata folder
+    if not topics and os.path.isdir(METADATA_DIR):
         files = sorted(Path(METADATA_DIR).glob("*.json"), reverse=True)[:n]
-        for f in files:
+        for fp in files:
             try:
-                d = json.loads(f.read_text())
-                topics.append(d.get("topic", ""))
+                d = json.loads(fp.read_text())
+                t = d.get("topic", "")
+                if t:
+                    topics.append(t)
             except:
                 pass
     return topics
+
+
+def save_used_topic(topic):
+    """
+    Append topic to used_topics.txt and commit to git.
+    This ensures topic history persists across CI runs.
+    """
+    try:
+        existing = []
+        if os.path.exists(USED_TOPICS_FILE):
+            with open(USED_TOPICS_FILE, encoding="utf-8") as f:
+                existing = [l.strip() for l in f.readlines() if l.strip()]
+        # Avoid duplicates
+        if topic not in existing:
+            existing.append(topic)
+        # Keep last 60 topics (2 months of 2x daily)
+        existing = existing[-60:]
+        with open(USED_TOPICS_FILE, "w", encoding="utf-8") as f:
+            f.write("\n".join(existing) + "\n")
+        # Commit to git so it persists across CI runs
+        run(["git", "config", "user.email", "bot@nidhineethitamil.com"])
+        run(["git", "config", "user.name",  "Nidhi Neethi Bot"])
+        run(["git", "add", USED_TOPICS_FILE])
+        r = run(["git", "commit", "-m", f"chore: log topic [{topic[:40]}]"])
+        if r.returncode == 0:
+            run(["git", "push"])
+            log("  ✅ Topic history committed to git")
+        else:
+            log("  ℹ️  Nothing to commit")
+    except Exception as e:
+        log(f"  ⚠️ Could not save topic history: {e}")
 
 
 def call_llm(prompt, max_retries=3):
@@ -1168,15 +1232,35 @@ def discover_daily_config():
 def generate_script(topic, format_type, hook_angle, voice_gender):
     log(f"  📝 Script ({format_type}, {voice_gender} voice)...")
     t0 = time.time()
-    prompt = SCRIPT_PROMPT.format(
-        topic=topic,
-        format_type=format_type,
-        hook_angle=hook_angle,
-        voice_gender=voice_gender,
-    )
-    text = call_llm(prompt)
 
-    # Enforce 2-min cap
+    def build_prompt(attempt=0):
+        note = ""
+        if attempt > 0:
+            note = (
+                f"\n\nCRITICAL — ATTEMPT {attempt+1}: Previous response was too short. "
+                "You MUST write 380-420 Tamil words = ~2500-2800 characters. "
+                "Beat 2 alone needs 200+ words. Write FULL complete sentences. No shortcuts."
+            )
+        return SCRIPT_PROMPT.format(
+            topic=topic,
+            format_type=format_type,
+            hook_angle=hook_angle,
+            voice_gender=voice_gender,
+        ) + note
+
+    text = ""
+    for attempt in range(3):
+        resp = call_llm(build_prompt(attempt))
+        chars = len(resp.strip())
+        log(f"  Attempt {attempt+1}: {chars} chars")
+        if chars >= TARGET_MIN_CHARS:
+            text = resp.strip()
+            break
+        text = resp.strip()
+        if attempt < 2:
+            log(f"  Too short ({chars} < {TARGET_MIN_CHARS}) — retrying...")
+            time.sleep(3)
+
     if len(text) > TARGET_MAX_CHARS:
         log(f"  Trimming {len(text)} → {TARGET_MAX_CHARS} chars")
         trimmed = text[:TARGET_MAX_CHARS]
@@ -1187,12 +1271,7 @@ def generate_script(topic, format_type, hook_angle, voice_gender):
                 break
         text = trimmed
 
-    if len(text) < TARGET_MIN_CHARS:
-        log(f"  Script short ({len(text)}), retrying...")
-        retry = prompt + f"\n\nமுக்கியம்: {len(text)} எழுத்துகள் மட்டும். சரியாக 380-420 வார்த்தைகள் எழுதுங்கள். 4 beats: Hook + Core + Takeaway + CTA."
-        text = call_llm(retry)
-
-    log(f"  Script: {len(text)} chars in {time.time()-t0:.0f}s")
+    log(f"  ✅ Script: {len(text)} chars in {time.time()-t0:.0f}s")
     return text
 
 
@@ -1216,13 +1295,40 @@ def generate_metadata(topic, format_type, hook_angle):
     raw = call_llm(prompt)
     try:
         return parse_json_response(raw)
-    except:
+    except Exception as e:
+        log(f"  ⚠️ Metadata JSON parse failed ({e}) — using structured fallback")
         return {
-            "title":             f"{topic} | {CHANNEL_NAME}",
-            "description":       f"{topic}\n\n#நிதிநீதிதமிழ் #NidhiNeethiTamil",
-            "tags":              "tamil finance, personal finance tamil, cibil score tamil",
-            "pinned_comment":    f"இந்த video பிடித்தால் subscribe செய்யுங்கள் 🔔",
-            "thumbnail_concept": "Professional finance visual with bold Tamil text",
+            "title": f"{topic[:55]} | {CHANNEL_NAME}",
+            "description": (
+                f"{hook_angle}\n"
+                f"Learn about {topic} in Tamil | {CHANNEL_NAME}\n\n"
+                f"0:00 Introduction\n"
+                f"0:15 {topic[:40]}\n"
+                f"0:45 விரிவான விளக்கம்\n"
+                f"1:30 நீங்கள் என்ன செய்யவேண்டும்\n"
+                f"1:50 Subscribe & Share\n\n"
+                f"இந்த video-ல் நீங்கள் கற்றுக்கொள்வது:\n"
+                f"✅ {topic} பற்றிய முழு தகவல்\n"
+                f"✅ உங்களுக்கு என்ன பலன்\n"
+                f"✅ இப்போதே எடுக்க வேண்டிய action\n\n"
+                f"⚠️ இந்த video educational purpose மட்டுமே. Financial advice இல்லை.\n\n"
+                f"🔔 Subscribe: @NidhiNeethiTamil\n\n"
+                f"#நிதிநீதிதமிழ் #NidhiNeethiTamil #TamilFinance #TamilLegalRights #PersonalFinanceTamil"
+            ),
+            "tags": (
+                "tamil finance, personal finance tamil, cibil score tamil, "
+                "tamil money tips, tamil investment, நிதி நீதி தமிழ், "
+                "NidhiNeethiTamil, tamil banking guide, loan tips tamil, "
+                f"{topic[:30]}, finance tamil 2026"
+            ),
+            "pinned_comment": (
+                f"இந்த topic பற்றி உங்கள் அனுபவம் என்ன? Comment பண்ணுங்கள் 👇\n"
+                f"நிதி நீதி தமிழ்-ஐ subscribe பண்ணி bell icon click பண்ணுங்கள் 🔔"
+            ),
+            "thumbnail_concept": (
+                f"Deep blue background. Bold Tamil text: '{topic[:30]}'. "
+                "Right side: rupee symbol or relevant icon. High contrast."
+            ),
         }
 
 
@@ -1495,6 +1601,9 @@ def process_video(topic=None, format_type=None, upload=False, privacy="public"):
     log(f"  Format: {fmt} | Voice: {gender}")
     log(f"{'='*55}")
 
+    # Persist topic so future runs avoid repeating it
+    save_used_topic(topic_val)
+
     # Step 2: Fetch images
     safe_name = hashlib.md5(topic_val.encode()).hexdigest()[:10]
     img_dir   = os.path.join(PEXELS_DIR, safe_name)
@@ -1507,16 +1616,17 @@ def process_video(topic=None, format_type=None, upload=False, privacy="public"):
     # Step 3: Generate BGM
     bgm_path = ensure_bgm(fmt)
 
-    # Step 4: Generate script + subtitles + metadata in parallel
-    log("🤖 Generating script + subtitles + metadata (parallel)...")
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
-        sf  = pool.submit(generate_script, topic_val, fmt, hook_angle, gender)
-        mf  = pool.submit(generate_metadata, topic_val, fmt, hook_angle)
-        script   = sf.result()
-        metadata = mf.result()
+    # Step 4: Generate script first (most critical), then metadata
+    # Sequential not parallel — avoids double Groq 429 rate limit hits
+    log("🤖 Step 1: Generating script...")
+    script = generate_script(topic_val, fmt, hook_angle, gender)
 
-    # Subtitles after script is ready
-    subtitle_lines = generate_subtitles(script)
+    log("🤖 Step 2: Generating subtitles + metadata (parallel)...")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        sf = pool.submit(generate_subtitles, script)
+        mf = pool.submit(generate_metadata, topic_val, fmt, hook_angle)
+        subtitle_lines = sf.result()
+        metadata       = mf.result()
 
     # Step 5: Save script + metadata
     title_short = metadata.get("title", topic_val)[:50]
