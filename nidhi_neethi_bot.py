@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ╔══════════════════════════════════════════════════════════════════╗
-║          நிதி நீதி தமிழ் — FULLY AUTOMATED BOT v1.7            ║
+║          நிதி நீதி தமிழ் — FULLY AUTOMATED BOT v1.8            ║
 ║  Tamil Finance & Legal Rights YouTube Channel                   ║
 ║  Thumbnail · Comments · NRI · Analytics · Community tab        ║
 ║  Auto topic · Pexels visuals · YouTube upload · Daily 6AM IST  ║
@@ -88,12 +88,37 @@ YOUTUBE_TOKEN_FILE     = "youtube_token.pickle"
 YOUTUBE_CLIENT_SECRETS = "client_secrets.json"
 
 CHANNEL_NAME    = "நிதி நீதி தமிழ்"
+
+# ═══════════════════════════════════════════════════════════════
+# AFFILIATE LINKS — நிதி நீதி தமிழ்
+# Finance apps + books (highest RPM affiliates for Tamil audience)
+# ═══════════════════════════════════════════════════════════════
+AFFILIATE_LINKS = {
+    "groww":         "https://groww.in/open-account?ref=NIDHINEETHI",  # ₹200-400/signup
+    "zerodha":       "https://zerodha.com/open-account?c=NIDHI123",
+    "et_money":      "https://etmoney.onelink.me/unSa/nidhineeth",
+    "cibil":         "https://www.cibil.com/?src=nidhineethi",
+    "books":         "https://amzn.to/3FinanceBooks",
+}
+
+AFFILIATE_FOOTER = """
+💰 பரிந்துரைக்கப்பட்ட apps & tools:
+📈 Mutual Fund SIP: https://groww.in/open-account?ref=NIDHINEETHI
+📊 Stock Trading: https://zerodha.com/open-account?c=NIDHI123
+💳 CIBIL Score Check: https://www.cibil.com/?src=nidhineethi
+📚 Finance Books Tamil: https://amzn.to/3FinanceBooks
+(இந்த links மூலம் sign up செய்தால் channel-க்கு support கிடைக்கும் — உங்களுக்கு extra charge இல்லை)
+"""
+
+SUPER_THANKS_CTA = """💙 இந்த video பயனுள்ளதாக இருந்தால் Super Thanks பண்ணி support செய்யுங்கள் — உங்கள் ஒவ்வொரு support-உம் இது போல் videos தொடர உதவுகிறது!"""
+
+EMAIL_CTA = """📧 Daily finance tip email-ல் பெற: https://bit.ly/nidhineethi-email"""
 CHANNEL_HANDLE  = "@NidhiNeethiTamil"
 CHANNEL_EMAIL   = "nidhineethitamil@gmail.com"
 
 # 2 min video = ~320-360 Tamil words at -13% TTS rate
 # chars: ~2200-2600 (Tamil avg 6.5 chars/word)
-TARGET_MIN_CHARS = 2200
+TARGET_MIN_CHARS = 3500
 TARGET_MAX_CHARS = 3200
 
 # ═══════════════════════════════════════════════════════════════
@@ -517,7 +542,7 @@ def call_llm(prompt, max_retries=3):
                 client = Groq(api_key=GROQ_API_KEY)
                 resp = client.chat.completions.create(
                     messages=[{"role": "user", "content": prompt}],
-                    model=GROQ_MODEL, temperature=0.85, max_tokens=4000,
+                    model=GROQ_MODEL, temperature=0.85, max_tokens=2000,
                 )
                 return resp.choices[0].message.content
             except Exception as e:
@@ -614,7 +639,10 @@ def fetch_pexels_images(keyword, output_dir, count=5):
 
     queries = TOPIC_PEXELS_QUERIES.get(keyword, TOPIC_PEXELS_QUERIES["default"])
     queries = list(queries)
-    random.shuffle(queries)
+    import datetime as _dt
+    week_seed = int(_dt.datetime.now().strftime("%Y%W"))
+    _rng = __import__('random').Random(week_seed)
+    _rng.shuffle(queries)
 
     for query in queries:
         if len(downloaded) >= count:
@@ -676,9 +704,9 @@ def ensure_bgm(format_type="default"):
     log(f"🎵 Generating BGM: {profile['mood']} ({profile['freq']}Hz)...")
     f1, f2 = profile["freq"], profile["freq2"]
     r = run([
-        "ffmpeg", "-y", "-f", "lavfi", "-i", f"sine=frequency={f1}:duration=200",
-        "-f", "lavfi", "-i", f"sine=frequency={f2}:duration=200",
-        "-f", "lavfi", "-i", "anoisesrc=d=200:c=pink:r=44100:a=0.005",
+        "ffmpeg", "-y", "-f", "lavfi", "-i", f"sine=frequency={f1}:duration=360",
+        "-f", "lavfi", "-i", f"sine=frequency={f2}:duration=360",
+        "-f", "lavfi", "-i", "anoisesrc=d=360:c=pink:r=44100:a=0.005",
         "-filter_complex",
         "[0:a]volume=0.12,afade=t=in:st=0:d=3,afade=t=out:st=197:d=3[s1];"
         "[1:a]volume=0.07,afade=t=in:st=0:d=5[s2];"
@@ -787,17 +815,17 @@ def build_text_overlay(title_short, format_type):
 
     overlays = [
         # Channel name — top left, always visible
-        f"drawtext=text='{channel}':fontsize=26:fontcolor=white@0.85:"
+        f"drawtext=fontfile=/usr/share/fonts/truetype/noto/NotoSansTamil-Regular.ttf:text='{channel}':fontsize=26:fontcolor=white@0.85:"
         f"x=30:y=28:shadowcolor=black@0.9:shadowx=2:shadowy=2",
         # Format badge — top right
-        f"drawtext=text='{fmt_label}':fontsize=20:fontcolor=yellow@0.9:"
+        f"drawtext=fontfile=/usr/share/fonts/truetype/noto/NotoSansTamil-Regular.ttf:text='{fmt_label}':fontsize=20:fontcolor=yellow@0.9:"
         f"x=w-tw-30:y=28:shadowcolor=black@0.9:shadowx=2:shadowy=2",
     ]
 
     # Title fades in at 0.5s, holds 6s
     if title:
         overlays.append(
-            f"drawtext=text='{title}':fontsize=38:fontcolor=white@1.0:"
+            f"drawtext=fontfile=/usr/share/fonts/truetype/noto/NotoSansTamil-Regular.ttf:text='{title}':fontsize=38:fontcolor=white@1.0:"
             f"x=(w-tw)/2:y=h-100:"
             f"shadowcolor=black@0.95:shadowx=3:shadowy=3:"
             f"alpha='if(lt(t,0.5),0,if(lt(t,2),(t-0.5)/1.5,if(lt(t,7),1,if(lt(t,8),(8-t),0))))'"
@@ -899,10 +927,10 @@ def make_outro_clip(output_path):
     if not os.path.exists(OUTRO_FRAME):
         return None
     text_filter = (
-        "drawtext=text='Subscribe பண்ணுங்கள் 🔔':fontsize=52:"
+        "drawtext=fontfile=/usr/share/fonts/truetype/noto/NotoSansTamil-Regular.ttf:text='Subscribe பண்ணுங்கள் 🔔':fontsize=52:"
         "fontcolor=white@0.95:x=(w-tw)/2:y=h-120:"
         "shadowcolor=black@0.9:shadowx=3:shadowy=3,"
-        "drawtext=text='@NidhiNeethiTamil':fontsize=36:"
+        "drawtext=fontfile=/usr/share/fonts/truetype/noto/NotoSansTamil-Regular.ttf:text='@NidhiNeethiTamil':fontsize=36:"
         "fontcolor=gold@0.9:x=(w-tw)/2:y=h-65:"
         "shadowcolor=black@0.8:shadowx=2:shadowy=2"
     )
@@ -1302,12 +1330,12 @@ def create_video(script_text, english_subtitles, images_input, output_name,
 
     combined_vf = (
         # Bilingual hook: top center, first 5s
-        f"drawtext=text='{safe_hook}':fontsize=28:"
+        f"drawtext=fontfile=/usr/share/fonts/truetype/noto/NotoSansTamil-Regular.ttf:text='{safe_hook}':fontsize=28:"
         f"fontcolor=yellow@0.95:x=(w-tw)/2:y=40:"
         f"shadowcolor=black@0.9:shadowx=2:shadowy=2:"
         f"enable='between(t,0,5)',"
         # Source citation: bottom left, 15s-75s
-        f"drawtext=text='{safe_src}':fontsize=18:"
+        f"drawtext=fontfile=/usr/share/fonts/truetype/noto/NotoSansTamil-Regular.ttf:text='{safe_src}':fontsize=18:"
         f"fontcolor=white@0.70:x=20:y=h-45:"
         f"shadowcolor=black@0.8:shadowx=1:shadowy=1:"
         f"enable='between(t,15,{show_end:.0f})'"
@@ -1379,7 +1407,7 @@ def create_video(script_text, english_subtitles, images_input, output_name,
         except: pass
 
     log("📱 Step 8/8 Shorts (9:16 reframe)...")
-    run(["ffmpeg", "-y", "-i", video_file, "-ss", "0", "-t", "58",
+    run(["ffmpeg", "-y", "-i", video_file, "-ss", "0", "-t", "40",
          "-vf", "scale=1920:1080,"
                 "crop=ih*9/16:ih:(iw-ih*9/16)/2:0,"
                 "scale=1080:1920",
@@ -1899,7 +1927,7 @@ def add_source_overlay(video_in, video_out, source_text, total_dur):
         return False
 
     vf = (
-        f"drawtext=text='{safe_source}':fontsize=18:"
+        f"drawtext=fontfile=/usr/share/fonts/truetype/noto/NotoSansTamil-Regular.ttf:text='{safe_source}':fontsize=18:"
         f"fontcolor=white@0.70:x=20:y=h-45:"
         f"shadowcolor=black@0.8:shadowx=1:shadowy=1:"
         f"enable='between(t,{show_start},{show_end:.0f})'"
@@ -1942,7 +1970,7 @@ def add_bilingual_hook_overlay(video_in, video_out, topic, format_type):
     safe_hook = hook_phrase.replace("'", "").replace(":", " -")
 
     vf = (
-        f"drawtext=text='{safe_hook}':fontsize=28:"
+        f"drawtext=fontfile=/usr/share/fonts/truetype/noto/NotoSansTamil-Regular.ttf:text='{safe_hook}':fontsize=28:"
         f"fontcolor=yellow@0.95:x=(w-tw)/2:y=40:"
         f"shadowcolor=black@0.9:shadowx=2:shadowy=2:"
         f"enable='between(t,0,5)'"
@@ -2650,6 +2678,52 @@ def get_authenticated_service():
         log(f"⚠️ YouTube service error: {e}"); return None
 
 
+
+
+def validate_script(text, lang="tamil"):
+    """
+    Quality check on generated script.
+    Returns (is_valid, cleaned_text, reason).
+    """
+    if not text or len(text) < 500:
+        return False, text, "too short"
+
+    # Strip markdown artifacts
+    text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)  # headers
+    text = re.sub(r"\*{1,3}([^*]+)\*{1,3}", r"\1", text)      # bold/italic
+    text = re.sub(r"^[-*]\s+", "", text, flags=re.MULTILINE)     # bullets
+    text = re.sub(r"^\d+\.\s+", "", text, flags=re.MULTILINE)  # numbered lists
+    text = re.sub(r"```[^`]*```", "", text, flags=re.DOTALL)      # code blocks
+    text = text.strip()
+
+    # Check Tamil character ratio (should be >40% for Tamil scripts)
+    tamil_chars = len(re.findall(r"[\u0B80-\u0BFF]", text))
+    total_chars = len(text.replace(" ","").replace("\n",""))
+    if total_chars > 0:
+        tamil_ratio = tamil_chars / total_chars
+        if tamil_ratio < 0.30:
+            return False, text, f"Tamil ratio too low: {tamil_ratio:.0%}"
+
+    return True, text, "ok"
+
+
+def failure_alert(message):
+    """GitHub Actions error annotation."""
+    print(f"::error title=நிதி நீதி தமிழ் Bot Error::{message}")
+    log(f"❌ ALERT: {message}")
+
+def validate_tags(tags_str):
+    """YouTube max: 500 chars total, max 30 tags."""
+    tags = [t.strip() for t in tags_str.split(",") if t.strip()][:30]
+    result, total = [], 0
+    for tag in tags:
+        if total + len(tag) + 1 <= 490:
+            result.append(tag)
+            total += len(tag) + 1
+        else:
+            break
+    return ", ".join(result)
+
 def upload_to_youtube(video_path, metadata, privacy="public"):
     if not os.path.exists(video_path):
         log(f"❌ Video not found: {video_path}"); return None
@@ -2663,7 +2737,7 @@ def upload_to_youtube(video_path, metadata, privacy="public"):
             "title":       metadata.get("title", "")[:100],
             "description": metadata.get("description", "")[:5000],
             "tags":        [t.strip() for t in
-                           metadata.get("tags", "").split(",")][:30],
+                           validate_tags(metadata.get("tags","")).split(",")][:30],
             "categoryId":  "27",
         },
         "status": {
@@ -2816,6 +2890,16 @@ def process_video(topic=None, format_type=None, upload=False, privacy="public"):
     thumb_path = generate_thumbnail(metadata.get("title", topic_val), fmt, safe_name)
     if thumb_path:
         metadata["thumbnail_path"] = thumb_path
+
+    # Enrich description with affiliate links + Super Thanks CTA
+    desc = metadata.get("description", "")
+    if AFFILIATE_FOOTER.strip() not in desc:
+        desc = desc + "\n\n" + AFFILIATE_FOOTER.strip()
+    if SUPER_THANKS_CTA.strip() not in desc:
+        desc = desc + "\n\n" + SUPER_THANKS_CTA.strip()
+    if EMAIL_CTA.strip() not in desc:
+        desc = desc + "\n\n" + EMAIL_CTA.strip()
+    metadata["description"] = desc[:5000]
 
     meta_data = {
         "topic": topic_val, "format": fmt, "title": metadata.get("title"),
