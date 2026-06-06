@@ -513,24 +513,14 @@ def save_used_topic(topic):
         log(f"  ⚠️ Could not save topic history: {e}")
 
 
-def call_llm(prompt, max_retries=3):
-    errs = []
-    if GROQ_API_KEY and Groq:
-        for attempt in range(max_retries):
-            try:
-                client = Groq(api_key=GROQ_API_KEY)
-                resp = client.chat.completions.create(
-                    messages=[{"role": "user", "content": prompt}],
-                    model=GROQ_MODEL, temperature=0.85, max_tokens=2000,
-                )
-                return resp.choices[0].message.content
-            except Exception as e:
-                wait = 10 * (attempt + 1)
-                log(f"⏳ Groq retry {attempt+1}/{max_retries} in {wait}s: {str(e)[:80]}")
-                errs.append(str(e))
-                time.sleep(wait)
-        log("⚠️ Groq failed → Gemini fallback")
+# ═══════════════════════════════════════════════════════════════
+# LLM ROUTER — Groq reserved for scripts only
+# Gemini Flash handles everything else (topic, metadata, MCQ etc)
+# This keeps Groq usage under 15K tokens/day well within 100K limit
+# ═══════════════════════════════════════════════════════════════
 
+def _call_gemini(prompt, max_retries=3):
+    """Gemini Flash — unlimited, used for all cheap tasks."""
     client = genai.Client(api_key=GEMINI_KEY)
     for attempt in range(max_retries):
         try:
@@ -539,13 +529,49 @@ def call_llm(prompt, max_retries=3):
             return resp.text
         except Exception as e:
             err = str(e)
-            if "429" in err or "RESOURCE_EXHAUSTED" in err:
+            if any(c in err for c in ["429","RESOURCE_EXHAUSTED","503",
+                                       "UNAVAILABLE","high demand","overloaded"]):
                 wait = min(30 * (2 ** attempt), 300)
-                log(f"⏳ Gemini quota wait {wait}s")
+                log(f"⏳ Gemini retry {attempt+1}/{max_retries} in {wait}s...")
                 time.sleep(wait)
             else:
-                raise
-    raise Exception(f"All LLM providers failed: {'; '.join(errs[:2])}")
+                log(f"⚠️ Gemini error: {err[:100]}")
+                if attempt == max_retries - 1:
+                    raise
+    raise Exception("Gemini failed after retries")
+
+
+def _call_groq(prompt, max_retries=3):
+    """Groq — high quality, used ONLY for script generation."""
+    if not (GROQ_API_KEY and Groq):
+        return None
+    for attempt in range(max_retries):
+        try:
+            client = Groq(api_key=GROQ_API_KEY)
+            resp = client.chat.completions.create(
+                messages=[{"role": "user", "content": prompt}],
+                model=GROQ_MODEL, temperature=0.85, max_tokens=4000,
+            )
+            return resp.choices[0].message.content
+        except Exception as e:
+            err = str(e)
+            # Check if daily limit exhausted — don't retry, fall through immediately
+            if "tokens per day" in err or "TPD" in err:
+                log(f"⚠️ Groq daily limit reached — switching to Gemini")
+                return None
+            if "429" in err or "rate_limit" in err.lower():
+                wait = 10 * (attempt + 1)
+                log(f"⏳ Groq 429 retry {attempt+1}/{max_retries} in {wait}s...")
+                time.sleep(wait)
+            else:
+                return None  # non-rate-limit error — fall through to Gemini
+    log("⚠️ Groq unavailable — falling back to Gemini")
+    return None
+
+
+def call_llm(prompt, max_retries=3):
+    """Default router → Gemini (cheap tasks: topic, metadata, MCQ, subtitles)."""
+    return _call_gemini(prompt, max_retries)
 
 
 def parse_json_response(raw):
@@ -1483,7 +1509,7 @@ def generate_script(topic, format_type, hook_angle, voice_gender):
 
     text = ""
     for attempt in range(3):
-        resp = call_llm(build_prompt(attempt))
+        resp = call_llm_groq(build_prompt(attempt))
         chars = len(resp.strip())
         log(f"  Attempt {attempt+1}: {chars} chars")
         if chars >= TARGET_MIN_CHARS:
