@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ╔══════════════════════════════════════════════════════════════════╗
-║          நிதி நீதி தமிழ் — FULLY AUTOMATED BOT v1.0            ║
+║          நிதி நீதி தமிழ் — FULLY AUTOMATED BOT v1.1            ║
 ║  Tamil Finance & Legal Rights YouTube Channel                   ║
 ║  2-min videos · English subtitles · Male+Female voices          ║
 ║  Auto topic · Pexels visuals · YouTube upload · Daily 6AM IST  ║
@@ -93,8 +93,8 @@ CHANNEL_EMAIL   = "nidhineethitamil@gmail.com"
 
 # 2 min video = ~320-360 Tamil words at -13% TTS rate
 # chars: ~2200-2600 (Tamil avg 6.5 chars/word)
-TARGET_MIN_CHARS = 1800
-TARGET_MAX_CHARS = 2800
+TARGET_MIN_CHARS = 2200
+TARGET_MAX_CHARS = 3200
 
 # ═══════════════════════════════════════════════════════════════
 # VOICE CONFIGURATION — Male + Female mix
@@ -105,24 +105,22 @@ VOICE_FEMALE = "ta-IN-PallaviNeural"   # warm, clear female
 VOICE_MALE   = "ta-IN-ValluvarNeural"  # authoritative male
 
 # Voice EQ profiles
+# Light, natural EQ — minimal processing = less robotic
 EQ_FEMALE_FINANCE = (
     "highpass=f=80,"
-    "equalizer=f=250:t=q:w=0.8:g=2,"
-    "equalizer=f=1200:t=q:w=0.9:g=3,"
-    "equalizer=f=2500:t=q:w=1:g=2,"
-    "equalizer=f=5000:t=q:w=1:g=-2,"
-    "acompressor=threshold=-20dB:ratio=2.5:attack=5:release=50:makeup=2,"
-    "loudnorm=I=-14:TP=-1.5:LRA=9"
+    "equalizer=f=300:t=q:w=0.7:g=1.5,"
+    "equalizer=f=3000:t=q:w=0.8:g=1,"
+    "acompressor=threshold=-18dB:ratio=2:attack=8:release=80:makeup=1,"
+    "loudnorm=I=-14:TP=-1.5:LRA=11"
 )
 
+# Light natural EQ for male — warm, authoritative, not processed
 EQ_MALE_FINANCE = (
     "highpass=f=60,"
-    "equalizer=f=150:t=q:w=0.8:g=3,"
-    "equalizer=f=800:t=q:w=0.9:g=2,"
-    "equalizer=f=2000:t=q:w=1:g=2,"
-    "equalizer=f=4000:t=q:w=1:g=-2,"
-    "acompressor=threshold=-22dB:ratio=2:attack=5:release=60:makeup=3,"
-    "loudnorm=I=-14:TP=-1.5:LRA=8"
+    "equalizer=f=200:t=q:w=0.7:g=2,"
+    "equalizer=f=2500:t=q:w=0.8:g=1.5,"
+    "acompressor=threshold=-20dB:ratio=1.8:attack=8:release=80:makeup=2,"
+    "loudnorm=I=-14:TP=-1.5:LRA=10"
 )
 
 # Content type → voice assignment
@@ -232,33 +230,61 @@ Return ONLY valid JSON:
   "reason": "<why this topic is best today>"
 }}"""
 
-SCRIPT_PROMPT = """You are a professional Tamil YouTube scriptwriter for "நிதி நீதி தமிழ்" — a finance and legal rights channel.
+SCRIPT_PROMPT = """You are a professional Tamil YouTube scriptwriter for "நிதி நீதி தமிழ்" — a finance and legal rights channel trusted by Tamil middle-class families.
 
 Topic: {topic}
 Format: {format_type}
-Hook angle: {hook_angle}
-Voice: {voice_gender} voice
+Hook: {hook_angle}
+Voice: {voice_gender}
 
-STRICT RULES:
-1. ⏱️ EXACTLY 2 minutes = 320-360 Tamil words. Count carefully.
-2. Strong hook in first 5 seconds — use the hook angle above
-3. Conversational Tamil — not textbook Tamil. How a knowledgeable friend talks.
-4. Numbers, percentages, law sections — make them memorable
-5. NO headers, NO bullets, NO numbering, NO markdown
-6. Natural breath pauses with "..." at emotional moments
-7. Real examples with Tamil names (Rajan, Priya, Murugan etc)
-8. End with ONE clear actionable takeaway
-9. Last line: subscribe + bell icon CTA (natural, not forced)
+━━━━━━━━━━━━━━━━━━━━━━━━━
+SCRIPT STRUCTURE (follow exactly — 4 beats):
 
-FORMAT-SPECIFIC TONE:
-- warning: urgent but calm — "இந்த தவறை நீங்களும் செய்கிறீர்களா?"
-- explainer: teacher friend — "இதை simple ஆ புரிஞ்சுக்கோங்க"
-- rights: empowering — "இது உங்கள் உரிமை, யாரும் மறுக்க முடியாது"
-- comparison: analytical — "இந்த இரண்டையும் compare பண்ணி பாருங்க"
-- story: narrative — "இது ஒரு உண்மையான கதை..."
-- news: confident anchor — "இன்று ஒரு முக்கியமான செய்தி"
+BEAT 1 — HOOK (15 seconds)
+Use the hook angle above. Make it feel urgent or curious.
+DO NOT introduce yourself. Jump straight into the problem or surprise fact.
+Example good hook: "உங்கள் CIBIL score இன்று 100 points கீழே போயிருக்கு... காரணம் தெரியுமா?"
+Example bad hook: "வணக்கம் நண்பர்களே, இன்று நாம் பேசப்போவது..."
 
-OUTPUT: Tamil script only. No labels. No section headers. Pure continuous speech.
+BEAT 2 — CORE INFORMATION (60 seconds)
+This is the most important part. Deliver COMPLETE, ACCURATE information.
+- Give the actual facts, numbers, percentages, steps — NOT vague generalities
+- If explaining a process: give each step clearly (step 1... step 2...)
+- If warning: explain exactly what the trap is and how it works
+- If comparing: give real numbers for both sides
+- NEVER say "இன்னும் நிறைய இருக்கு" or leave things incomplete
+- Use real data: actual RBI rules, actual percentages, actual timeframes
+
+BEAT 3 — PRACTICAL TAKEAWAY (25 seconds)
+ONE specific action the viewer can take TODAY.
+Make it so simple a first-time viewer can act on it immediately.
+Example: "இப்பவே உங்கள் phone-ல் CIBIL app திறந்து free report download பண்ணுங்க"
+
+BEAT 4 — CTA (10 seconds)
+Natural close. Thank viewer. One line subscribe ask.
+DO NOT sound desperate. Sound like a knowledgeable friend.
+━━━━━━━━━━━━━━━━━━━━━━━━━
+
+FORMAT TONE:
+- warning:    urgent, protective friend — "இந்த தவறை நான் உங்களிடம் சொல்லியே ஆகணும்"
+- explainer:  clear teacher — "step by step பார்க்கலாம்"
+- rights:     empowering lawyer friend — "சட்டம் உங்கள் பக்கம் இருக்கு"
+- comparison: data-driven friend — "numbers பேசட்டும்"
+- story:      storyteller — situation → problem → solution (NO fictional names — say "ஒரு Chennai-ல் இருக்கிற software engineer" not "Rajan என்பவர்")
+- news:       confident news anchor tone
+
+CRITICAL RULES:
+1. 380-420 Tamil words exactly (2 min at natural pace)
+2. NO fictional Tamil names (Rajan, Priya, Murugan etc) — say roles instead:
+   ✅ "ஒரு Chennai software engineer"
+   ✅ "ஒரு 35 வயது bank employee"
+   ❌ "ராஜன் என்பவர்" (sounds fake, breaks trust)
+3. Use REAL numbers — actual RBI rates, actual law sections, actual timeframes
+4. Conversational Tamil — NOT formal written Tamil. How you talk to a friend.
+5. "..." for natural pauses at key moments
+6. NO headers, bullets, numbering, markdown — pure flowing speech
+7. Information must be COMPLETE — viewer should not need to search elsewhere
+8. Every sentence must earn its place — no filler, no repetition
 """
 
 SUBTITLE_PROMPT = """You are a professional subtitle translator.
@@ -580,30 +606,45 @@ def ensure_bgm(format_type="default"):
 # ═══════════════════════════════════════════════════════════════
 
 def generate_srt(english_lines, total_duration, output_path):
-    """Generate SRT subtitle file from English lines + total duration."""
+    """
+    Generate SRT subtitle file.
+    Timing proportional to word count per line — longer lines get more time.
+    Leaves 5% buffer at end for natural ending.
+    """
     lines = [l.strip() for l in english_lines if l.strip()]
     if not lines:
         return None
 
-    dur_per_line = total_duration / max(len(lines), 1)
+    usable_duration = total_duration * 0.95  # 5% buffer at end
+    # Weight time by word count — longer subtitle = more screen time
+    word_counts = [max(len(l.split()), 1) for l in lines]
+    total_words = sum(word_counts)
+    # Min display time: 1.2s per line, max: 5s
+    time_weights = [max(1.2, min(5.0, (wc / total_words) * usable_duration))
+                    for wc in word_counts]
+    # Normalize to fit total duration
+    scale = usable_duration / sum(time_weights)
+    durations = [t * scale for t in time_weights]
+
     srt_content = ""
+    cursor = 0.3  # small delay before first subtitle
 
-    for i, line in enumerate(lines):
-        start = i * dur_per_line
-        end   = min((i + 1) * dur_per_line, total_duration - 0.1)
+    def fmt(s):
+        h = int(s // 3600)
+        m = int((s % 3600) // 60)
+        sec = int(s % 60)
+        ms = int((s % 1) * 1000)
+        return f"{h:02d}:{m:02d}:{sec:02d},{ms:03d}"
 
-        def fmt(s):
-            h = int(s // 3600)
-            m = int((s % 3600) // 60)
-            sec = int(s % 60)
-            ms = int((s % 1) * 1000)
-            return f"{h:02d}:{m:02d}:{sec:02d},{ms:03d}"
-
+    for i, (line, dur) in enumerate(zip(lines, durations)):
+        start = cursor
+        end   = min(cursor + dur - 0.1, total_duration - 0.2)
         srt_content += f"{i+1}\n{fmt(start)} --> {fmt(end)}\n{line}\n\n"
+        cursor += dur
 
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(srt_content)
-    log(f"  ✅ SRT: {output_path} ({len(lines)} lines)")
+    log(f"  ✅ SRT: {output_path} ({len(lines)} lines, proportional timing)")
     return output_path
 
 
@@ -735,7 +776,7 @@ def create_video(script_text, english_subtitles, images_input, output_name,
     t0 = time.time()
     try:
         r = run(["edge-tts", "--file", script_file, "--voice", voice_id,
-                 "--rate=-13%", "--pitch=+1Hz", "--write-media", voice_file],
+                 "--rate=-18%", "--pitch=+0Hz", "--write-media", voice_file],
                 timeout=300)
     except subprocess.TimeoutExpired:
         log("❌ TTS timeout"); return None
@@ -756,7 +797,7 @@ def create_video(script_text, english_subtitles, images_input, output_name,
         bfo = max(0, dur - 3)
         fc = (
             "[0:a]volume=1.0,afade=t=in:st=0:d=1,afade=t=out:st={fo}:d=2[v];"
-            "[1:a]volume=0.28,afade=t=in:st=0:d=3,afade=t=out:st={bfo}:d=3[b];"
+            "[1:a]volume=0.10,afade=t=in:st=0:d=3,afade=t=out:st={bfo}:d=3[b];"
             "[v][b]amix=inputs=2:duration=first:dropout_transition=2[out]"
         ).format(fo=fo, bfo=bfo)
         run(["ffmpeg", "-y", "-i", human_file, "-i", bgm_path,
@@ -914,7 +955,7 @@ def generate_script(topic, format_type, hook_angle, voice_gender):
 
     if len(text) < TARGET_MIN_CHARS:
         log(f"  Script short ({len(text)}), retrying...")
-        retry = prompt + f"\n\nமுக்கியம்: {len(text)} எழுத்துகள் மட்டும். சரியாக 320-360 வார்த்தைகள் (2 நிமிட வீடியோ)."
+        retry = prompt + f"\n\nமுக்கியம்: {len(text)} எழுத்துகள் மட்டும். சரியாக 380-420 வார்த்தைகள் எழுதுங்கள். 4 beats: Hook + Core + Takeaway + CTA."
         text = call_llm(retry)
 
     log(f"  Script: {len(text)} chars in {time.time()-t0:.0f}s")
