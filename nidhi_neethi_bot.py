@@ -89,30 +89,9 @@ YOUTUBE_CLIENT_SECRETS = "client_secrets.json"
 
 CHANNEL_NAME    = "நிதி நீதி தமிழ்"
 
-# ═══════════════════════════════════════════════════════════════
-# AFFILIATE LINKS — நிதி நீதி தமிழ்
-# Finance apps + books (highest RPM affiliates for Tamil audience)
-# ═══════════════════════════════════════════════════════════════
-AFFILIATE_LINKS = {
-    "groww":         "https://groww.in/open-account?ref=NIDHINEETHI",  # ₹200-400/signup
-    "zerodha":       "https://zerodha.com/open-account?c=NIDHI123",
-    "et_money":      "https://etmoney.onelink.me/unSa/nidhineeth",
-    "cibil":         "https://www.cibil.com/?src=nidhineethi",
-    "books":         "https://amzn.to/3FinanceBooks",
-}
 
-AFFILIATE_FOOTER = """
-💰 பரிந்துரைக்கப்பட்ட apps & tools:
-📈 Mutual Fund SIP: https://groww.in/open-account?ref=NIDHINEETHI
-📊 Stock Trading: https://zerodha.com/open-account?c=NIDHI123
-💳 CIBIL Score Check: https://www.cibil.com/?src=nidhineethi
-📚 Finance Books Tamil: https://amzn.to/3FinanceBooks
-(இந்த links மூலம் sign up செய்தால் channel-க்கு support கிடைக்கும் — உங்களுக்கு extra charge இல்லை)
-"""
 
-SUPER_THANKS_CTA = """💙 இந்த video பயனுள்ளதாக இருந்தால் Super Thanks பண்ணி support செய்யுங்கள் — உங்கள் ஒவ்வொரு support-உம் இது போல் videos தொடர உதவுகிறது!"""
 
-EMAIL_CTA = """📧 Daily finance tip email-ல் பெற: https://bit.ly/nidhineethi-email"""
 CHANNEL_HANDLE  = "@NidhiNeethiTamil"
 CHANNEL_EMAIL   = "nidhineethitamil@gmail.com"
 
@@ -2890,16 +2869,6 @@ def process_video(topic=None, format_type=None, upload=False, privacy="public"):
     thumb_path = generate_thumbnail(metadata.get("title", topic_val), fmt, safe_name)
     if thumb_path:
         metadata["thumbnail_path"] = thumb_path
-
-    # Enrich description with affiliate links + Super Thanks CTA
-    desc = metadata.get("description", "")
-    if AFFILIATE_FOOTER.strip() not in desc:
-        desc = desc + "\n\n" + AFFILIATE_FOOTER.strip()
-    if SUPER_THANKS_CTA.strip() not in desc:
-        desc = desc + "\n\n" + SUPER_THANKS_CTA.strip()
-    if EMAIL_CTA.strip() not in desc:
-        desc = desc + "\n\n" + EMAIL_CTA.strip()
-    metadata["description"] = desc[:5000]
 
     meta_data = {
         "topic": topic_val, "format": fmt, "title": metadata.get("title"),
