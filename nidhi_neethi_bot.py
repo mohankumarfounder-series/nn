@@ -1129,6 +1129,14 @@ def discover_daily_config():
     trends        = fetch_trends()
     recent_topics = load_recent_topics(10)
 
+    slot     = os.environ.get("SLOT_HINT", "")
+    pref_fmt = os.environ.get("PREFERRED_FORMATS", "")
+    slot_note = ""
+    if slot == "morning":
+        slot_note = "TIME SLOT: Morning (7 AM IST). Prefer explainer or comparison format — calm educational tone for start of day."
+    elif slot == "evening":
+        slot_note = "TIME SLOT: Evening (8 PM IST). Prefer warning, story or rights format — emotional, engaging tone after work."
+
     prompt = DAILY_TOPIC_PROMPT.format(
         date=now.strftime("%Y-%m-%d"),
         day=now.strftime("%A"),
@@ -1136,6 +1144,8 @@ def discover_daily_config():
         trends=trends[:300],
         recent_topics=", ".join(recent_topics[:5]) or "None yet",
     )
+    if slot_note:
+        prompt += f"\n\n{slot_note}"
 
     raw = call_llm(prompt)
     try:
