@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ╔══════════════════════════════════════════════════════════════════╗
-║          நிதி நீதி தமிழ் — FULLY AUTOMATED BOT v1.6            ║
+║          நிதி நீதி தமிழ் — FULLY AUTOMATED BOT v1.7            ║
 ║  Tamil Finance & Legal Rights YouTube Channel                   ║
 ║  Thumbnail · Comments · NRI · Analytics · Community tab        ║
 ║  Auto topic · Pexels visuals · YouTube upload · Daily 6AM IST  ║
@@ -840,39 +840,57 @@ POSE_BY_FORMAT_AND_BEAT = {
 
 
 def make_intro_clip(output_path):
-    """2s logo sting: intro_frame.png + bell sound."""
+    """
+    2s logo sting: intro_frame.png + bell sound.
+    Audio padded to EXACT INTRO_DURATION to prevent concat truncation.
+    All output: 25fps, 1920x1080, aac 44100Hz — matches content video.
+    """
     if not os.path.exists(INTRO_FRAME):
         return None
-    # Bell tone
-    bell = f"/tmp/brand_bell.mp3"
+
+    # Generate bell + pad to exactly INTRO_DURATION seconds
+    bell = f"/tmp/brand_bell_{os.getpid()}.mp3"
     run(["ffmpeg", "-y", "-f", "lavfi",
-         "-i", "sine=frequency=880:duration=2.5",
-         "-f", "lavfi", "-i", "sine=frequency=1320:duration=2.5",
+         "-i", f"sine=frequency=880:duration={INTRO_DURATION}",
+         "-f", "lavfi", "-i", f"sine=frequency=1320:duration={INTRO_DURATION}",
          "-filter_complex",
-         "[0:a]volume=0.5,afade=t=out:st=1.5:d=1[b1];"
-         "[1:a]volume=0.3,afade=t=out:st=1.2:d=1[b2];"
-         "[b1][b2]amix=inputs=2[bell]",
-         "-map", "[bell]", bell], timeout=15)
+         f"[0:a]volume=0.5,afade=t=in:st=0:d=0.2,afade=t=out:st={INTRO_DURATION-0.5}:d=0.5[b1];"
+         f"[1:a]volume=0.3,afade=t=out:st={INTRO_DURATION-0.5}:d=0.5[b2];"
+         "[b1][b2]amix=inputs=2:duration=longest,"
+         f"apad=pad_dur={INTRO_DURATION}[bell]",
+         "-map", "[bell]", "-t", str(INTRO_DURATION), bell], timeout=15)
+
+    has_bell = os.path.exists(bell)
 
     cmd = ["ffmpeg", "-y",
-           "-loop", "1", "-t", str(INTRO_DURATION), "-i", INTRO_FRAME]
-    if os.path.exists(bell):
-        cmd.extend(["-i", bell,
-                    "-filter_complex",
-                    f"[0:v]scale=1920:1080,fade=t=in:st=0:d=0.5,"
-                    f"fade=t=out:st={INTRO_DURATION-0.5}:d=0.5[v]",
-                    "-map", "[v]", "-map", "1:a"])
+           "-loop", "1", "-t", str(INTRO_DURATION + 0.1), "-i", INTRO_FRAME]
+    if has_bell:
+        cmd.extend(["-i", bell])
+
+    vf = (f"fps=25,scale=1920:1080:force_original_aspect_ratio=decrease,"
+          f"pad=1920:1080:(ow-iw)/2:(oh-ih)/2,"
+          f"fade=t=in:st=0:d=0.4,fade=t=out:st={INTRO_DURATION-0.4}:d=0.4")
+
+    cmd.extend(["-vf", vf])
+    if has_bell:
+        cmd.extend(["-map", "0:v", "-map", "1:a"])
     else:
-        cmd.extend(["-filter_complex",
-                    f"[0:v]scale=1920:1080,fade=t=in:st=0:d=0.5,"
-                    f"fade=t=out:st={INTRO_DURATION-0.5}:d=0.5[v]",
-                    "-map", "[v]",
+        cmd.extend(["-map", "0:v",
                     "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
-                    "-map", "1:a", "-t", str(INTRO_DURATION)])
+                    "-map", "2:a"])
+
     cmd.extend(["-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
-                "-pix_fmt", "yuv420p", "-c:a", "aac",
-                "-t", str(INTRO_DURATION), output_path])
+                "-pix_fmt", "yuv420p",
+                "-c:a", "aac", "-ar", "44100", "-ac", "2",
+                "-t", str(INTRO_DURATION),  # hard cap at exact duration
+                output_path])
+
     r = run(cmd, timeout=30)
+    try:
+        if os.path.exists(bell): os.remove(bell)
+    except: pass
+    if r.returncode != 0:
+        log(f"  ⚠️ Intro clip failed: {r.stderr[-100:]}")
     return output_path if r.returncode == 0 else None
 
 
@@ -889,31 +907,48 @@ def make_outro_clip(output_path):
         "shadowcolor=black@0.8:shadowx=2:shadowy=2"
     )
     r = run(["ffmpeg", "-y",
-             "-loop", "1", "-t", str(OUTRO_DURATION), "-i", OUTRO_FRAME,
+             "-loop", "1", "-t", str(OUTRO_DURATION + 0.1), "-i", OUTRO_FRAME,
              "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
              "-filter_complex",
-             f"[0:v]scale=1920:1080,"
-             f"fade=t=in:st=0:d=0.5,"
-             f"fade=t=out:st={OUTRO_DURATION-0.5}:d=0.5,"
-             f"{text_filter}[v]",
-             "-map", "[v]", "-map", "1:a",
+             f"[0:v]fps=25,scale=1920:1080:force_original_aspect_ratio=decrease,"
+             f"pad=1920:1080:(ow-iw)/2:(oh-ih)/2,"
+             f"fade=t=in:st=0:d=0.4,"
+             f"fade=t=out:st={OUTRO_DURATION-0.4}:d=0.4,"
+             f"{text_filter}[v];"
+             f"[1:a]apad=pad_dur={OUTRO_DURATION}[a]",
+             "-map", "[v]", "-map", "[a]",
              "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
-             "-pix_fmt", "yuv420p", "-c:a", "aac",
+             "-pix_fmt", "yuv420p",
+             "-c:a", "aac", "-ar", "44100", "-ac", "2",
              "-t", str(OUTRO_DURATION), output_path], timeout=30)
     return output_path if r.returncode == 0 else None
 
 
 def concat_clips(clips, output_path):
-    """Concatenate multiple video clips into one."""
-    # Write filelist
+    """
+    Concatenate clips with re-encode to uniform specs.
+    Uses -c copy only if all clips have identical codec/fps/resolution.
+    Re-encodes otherwise to prevent silent truncation from stream mismatch.
+    """
     flist = f"/tmp/concat_{os.path.basename(output_path)}.txt"
     with open(flist, "w") as f:
         for c in clips:
             f.write(f"file '{os.path.abspath(c)}'\n")
+    # Re-encode to uniform 25fps 1920x1080 — prevents truncation from
+    # fps/codec mismatch between intro(PNG-based) and content clips
     r = run(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
-             "-i", flist, "-c", "copy", output_path], timeout=120)
+             "-i", flist,
+             "-vf", "fps=25,scale=1920:1080:force_original_aspect_ratio=decrease,"
+                    "pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
+             "-c:v", "libx264", "-preset", "veryfast", "-crf", "24",
+             "-pix_fmt", "yuv420p",
+             "-c:a", "aac", "-ar", "44100", "-ac", "2",
+             "-movflags", "+faststart",
+             output_path], timeout=180)
     try: os.remove(flist)
     except: pass
+    if r.returncode != 0:
+        log(f"  ⚠️ Concat re-encode failed: {r.stderr[-100:]}")
     return r.returncode == 0
 
 
@@ -1245,19 +1280,56 @@ def create_video(script_text, english_subtitles, images_input, output_name,
     if not srt_created:
         shutil.copy(working, video_file)
 
-    log("🔤 Step 7/8 Source citation + bilingual hook + brand overlays...")
+    log("🔤 Step 7/8 Source citation + bilingual hook (single pass)...")
 
-    # Step 7a: Source citation overlay (Beat 2 — 15s to 75s)
-    citation_file = f"/tmp/{output_name}_citation.mp4"
-    add_source_overlay(video_file, citation_file, source_citation, total_dur)
-    if os.path.exists(citation_file) and os.path.getsize(citation_file) > 0:
-        shutil.move(citation_file, video_file)
+    # Combine BOTH overlays in ONE ffmpeg pass — prevents duration drift
+    # from sequential re-encodes
+    combined_file = f"/tmp/{output_name}_combined.mp4"
 
-    # Step 7b: Bilingual English hook (first 5 seconds)
-    bilingual_file = f"/tmp/{output_name}_bilingual.mp4"
-    add_bilingual_hook_overlay(video_file, bilingual_file, topic_val, format_type)
-    if os.path.exists(bilingual_file) and os.path.getsize(bilingual_file) > 0:
-        shutil.move(bilingual_file, video_file)
+    hooks = {
+        "warning":    "MUST WATCH before you apply for a loan",
+        "explainer":  "Complete guide explained in Tamil",
+        "rights":     "Know your legal rights — explained in Tamil",
+        "comparison": "Which is better? Find out in Tamil",
+        "story":      "Real story — what happened and what you can learn",
+        "news":       "Breaking finance news explained in Tamil",
+    }
+    hook_phrase = hooks.get(format_type, "Tamil finance guide")
+    safe_hook   = hook_phrase.replace("'", "").replace(":", " -")
+    safe_src    = source_citation.replace("'", "").replace(":", " -")
+
+    show_end = min(75, total_dur - 5)
+
+    combined_vf = (
+        # Bilingual hook: top center, first 5s
+        f"drawtext=text='{safe_hook}':fontsize=28:"
+        f"fontcolor=yellow@0.95:x=(w-tw)/2:y=40:"
+        f"shadowcolor=black@0.9:shadowx=2:shadowy=2:"
+        f"enable='between(t,0,5)',"
+        # Source citation: bottom left, 15s-75s
+        f"drawtext=text='{safe_src}':fontsize=18:"
+        f"fontcolor=white@0.70:x=20:y=h-45:"
+        f"shadowcolor=black@0.8:shadowx=1:shadowy=1:"
+        f"enable='between(t,15,{show_end:.0f})'"
+    )
+
+    r_combined = run([
+        "ffmpeg", "-y", "-i", video_file,
+        "-vf", combined_vf,
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "24",
+        "-c:a", "copy",   # audio copy — no drift here
+        combined_file
+    ], timeout=200)
+
+    if r_combined.returncode == 0 and os.path.exists(combined_file):
+        shutil.move(combined_file, video_file)
+        log(f"  ✅ Source citation + bilingual hook (single pass)")
+    else:
+        log("  ⚠️ Combined overlay failed — using video as-is")
+        for f in [combined_file]:
+            try:
+                if os.path.exists(f): os.remove(f)
+            except: pass
 
     log("🎨 Brand overlays (logo watermark + intro + outro)...")
 
