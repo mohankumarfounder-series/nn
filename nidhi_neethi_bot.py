@@ -2808,48 +2808,6 @@ def generate_thumbnail(title, format_type, output_name):
         log(f"  ⚠️ Thumbnail failed: {e}")
         return None
 
-def upload_short_to_youtube(short_path, main_title, main_description, tags_str, youtube):
-    """Upload Short to YouTube with #Shorts tag for Shorts feed discovery."""
-    if not short_path or not os.path.exists(short_path):
-        return None
-    try:
-        # Shorts title: keep under 100 chars, add #Shorts
-        short_title = main_title[:90] + " #Shorts" if len(main_title) <= 90 else main_title[:88] + "… #Shorts"
-
-        # Shorts description: first 2 lines + #Shorts tag
-        short_desc_lines = (main_description or "").split("\n")[:3]
-        short_desc = "\n".join(short_desc_lines) + "\n\n#Shorts"
-
-        # Tags: add Shorts-specific tags
-        tags = [t.strip() for t in tags_str.split(",") if t.strip()][:25]
-        if "Shorts" not in tags: tags.insert(0, "Shorts")
-        if "YouTubeShorts" not in tags: tags.insert(1, "YouTubeShorts")
-
-        body = {
-            "snippet": {
-                "title":       short_title[:100],
-                "description": short_desc[:5000],
-                "tags":        tags[:30],
-                "categoryId":  "22",   # People & Blogs — YouTube classifies Shorts here
-            },
-            "status": {
-                "privacyStatus":           "public",
-                "selfDeclaredMadeForKids": False,
-            },
-        }
-
-        req = youtube.videos().insert(
-            part="snippet,status", body=body,
-            media_body=MediaFileUpload(short_path, chunksize=-1, resumable=True))
-        resp = req.execute()
-        vid = resp["id"]
-        log(f"  ✅ Short uploaded: https://youtu.be/{vid}")
-        return vid
-    except Exception as e:
-        log(f"  ⚠️ Short upload failed: {e}")
-        return None
-
-
 def upload_to_youtube(video_path, metadata, privacy="public"):
     if not os.path.exists(video_path):
         log(f"❌ Video not found: {video_path}"); return None
@@ -3060,13 +3018,29 @@ def process_video(topic=None, format_type=None, upload=False, privacy="public"):
                 vid = upload_to_youtube(video, metadata, privacy)
                 if vid:
                     log(f"✅ Live: https://youtu.be/{vid}")
-                    short_path = f"{SHORTS_DIR}/{safe_name}_short.mp4"
-                    _yt = get_authenticated_service()
-                    if _yt:
-                        upload_short_to_youtube(short_path, metadata.get("title",""),
-                            metadata.get("description",""), metadata.get("tags",""), _yt)
             except Exception as e:
-                log(f"⚠️ Upload failed (non-fatal): {e}")
+                log(f"⚠️ Main video upload failed: {e}")
+
+            # ── Short upload (fully independent) ──
+            try:
+                short_path = f"{SHORTS_DIR}/{safe_name}_short.mp4"
+                if os.path.exists(short_path):
+                    _yt2 = get_authenticated_service()
+                    if _yt2:
+                        upload_short_to_youtube(
+                            short_path,
+                            metadata.get("title", ""),
+                            metadata.get("description", ""),
+                            metadata.get("tags", ""),
+                            _yt2
+                        )
+                        log("✅ Short uploaded independently")
+                    else:
+                        log("  ⚠️ Short: YouTube auth unavailable")
+                else:
+                    log(f"  ℹ️ Short not found: {short_path}")
+            except Exception as short_err:
+                log(f"  ⚠️ Short upload failed (main video unaffected): {short_err}")
     else:
         log(f"❌ Video creation failed ({elapsed:.0f}s)")
 
@@ -3133,18 +3107,6 @@ def daemon_mode():
 # ENTRY POINT
 # ═══════════════════════════════════════════════════════════════
 
-def safe_process_video(*args, **kwargs):
-    """Always-safe wrapper — catches all exceptions, never crashes workflow."""
-    try:
-        return process_video(*args, **kwargs)
-    except Exception as e:
-        log(f"❌ Fatal error in process_video: {e}")
-        try:
-            print(f"::error title=Bot Error::{str(e)[:200]}")
-        except: pass
-        return None
-
-
 def main():
     if not GEMINI_KEY and not GROQ_API_KEY:
         print("ERROR: Set GEMINI_KEY or GROQ_API_KEY"); sys.exit(1)
@@ -3197,10 +3159,10 @@ def main():
         daemon_mode(); return
 
     if args.topic:
-        safe_process_video(topic=args.topic, format_type=args.format,
+        process_video(topic=args.topic, format_type=args.format,
                       upload=args.upload, privacy=args.privacy)
     elif args.day:
-        safe_process_video(upload=args.upload, privacy=args.privacy)
+        process_video(upload=args.upload, privacy=args.privacy)
     else:
         print("Usage:")
         print("  python nidhi_neethi_bot.py --day today")
