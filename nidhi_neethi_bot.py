@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ╔══════════════════════════════════════════════════════════════════╗
-║          நிதி நீதி தமிழ் — FULLY AUTOMATED BOT v1.9            ║
+║          நிதி நீதி தமிழ் — FULLY AUTOMATED BOT v2.0            ║
 ║  Tamil Finance & Legal Rights YouTube Channel                   ║
 ║  Thumbnail · Comments · NRI · Analytics · Community tab        ║
 ║  Auto topic · Pexels visuals · YouTube upload · Daily 6AM IST  ║
@@ -562,8 +562,8 @@ def save_used_topic(topic):
 # Keeps Groq daily usage ~26K/100K tokens (was 96K+)
 # ═══════════════════════════════════════════════════════════════
 
-def _call_gemini(prompt, max_retries=3):
-    """Gemini Flash — default for all cheap tasks."""
+def _call_gemini(prompt, max_retries=5):
+    """Gemini Flash — default for all cheap tasks. 5 retries for resilience."""
     if not GEMINI_KEY:
         raise Exception("GEMINI_KEY not set")
     client = genai.Client(api_key=GEMINI_KEY)
@@ -575,12 +575,14 @@ def _call_gemini(prompt, max_retries=3):
         except Exception as e:
             err = str(e)
             if any(c in err for c in ["429","RESOURCE_EXHAUSTED","503",
-                                       "UNAVAILABLE","high demand","overloaded"]):
-                wait = min(30 * (2 ** attempt), 300)
+                                       "UNAVAILABLE","high demand","overloaded",
+                                       "ServiceUnavailable","Internal"]):
+                # Exponential backoff: 15s, 30s, 60s, 120s, 240s
+                wait = min(15 * (2 ** attempt), 300)
                 log(f"⏳ Gemini retry {attempt+1}/{max_retries} in {wait}s...")
                 time.sleep(wait)
             else:
-                log(f"⚠️ Gemini error: {err[:100]}")
+                log(f"⚠️ Gemini unexpected error: {err[:120]}")
                 if attempt == max_retries - 1:
                     raise
     raise Exception("Gemini failed after all retries")
@@ -3008,8 +3010,19 @@ def process_video(topic=None, format_type=None, upload=False, privacy="public"):
                 log(f"⚠️ Upload failed (non-fatal): {e}")
     else:
         log(f"❌ Video creation failed ({elapsed:.0f}s)")
+        failure_alert(f"Video failed after {elapsed:.0f}s")
 
     return video
+
+
+def safe_process_video(**kwargs):
+    """Wrapper that catches all exceptions so workflow never fails hard."""
+    try:
+        return process_video(**kwargs)
+    except Exception as e:
+        log(f"❌ Fatal error: {e}")
+        failure_alert(f"Fatal error: {str(e)[:200]}")
+        return None
 
 
 def auth_youtube():
@@ -3124,10 +3137,10 @@ def main():
         daemon_mode(); return
 
     if args.topic:
-        process_video(topic=args.topic, format_type=args.format,
-                      upload=args.upload, privacy=args.privacy)
+        safe_process_video(topic=args.topic, format_type=args.format,
+                           upload=args.upload, privacy=args.privacy)
     elif args.day:
-        process_video(upload=args.upload, privacy=args.privacy)
+        safe_process_video(upload=args.upload, privacy=args.privacy)
     else:
         print("Usage:")
         print("  python nidhi_neethi_bot.py --day today")
