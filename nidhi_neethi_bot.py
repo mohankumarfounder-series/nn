@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ╔══════════════════════════════════════════════════════════════════╗
-║          நிதி நீதி தமிழ் — FULLY AUTOMATED BOT v2.0            ║
+║          நிதி நீதி தமிழ் — FULLY AUTOMATED BOT v1.9            ║
 ║  Tamil Finance & Legal Rights YouTube Channel                   ║
 ║  Thumbnail · Comments · NRI · Analytics · Community tab        ║
 ║  Auto topic · Pexels visuals · YouTube upload · Daily 6AM IST  ║
@@ -562,8 +562,8 @@ def save_used_topic(topic):
 # Keeps Groq daily usage ~26K/100K tokens (was 96K+)
 # ═══════════════════════════════════════════════════════════════
 
-def _call_gemini(prompt, max_retries=5):
-    """Gemini Flash — default for all cheap tasks. 5 retries for resilience."""
+def _call_gemini(prompt, max_retries=3):
+    """Gemini Flash — default for all cheap tasks."""
     if not GEMINI_KEY:
         raise Exception("GEMINI_KEY not set")
     client = genai.Client(api_key=GEMINI_KEY)
@@ -575,14 +575,12 @@ def _call_gemini(prompt, max_retries=5):
         except Exception as e:
             err = str(e)
             if any(c in err for c in ["429","RESOURCE_EXHAUSTED","503",
-                                       "UNAVAILABLE","high demand","overloaded",
-                                       "ServiceUnavailable","Internal"]):
-                # Exponential backoff: 15s, 30s, 60s, 120s, 240s
-                wait = min(15 * (2 ** attempt), 300)
+                                       "UNAVAILABLE","high demand","overloaded"]):
+                wait = min(30 * (2 ** attempt), 300)
                 log(f"⏳ Gemini retry {attempt+1}/{max_retries} in {wait}s...")
                 time.sleep(wait)
             else:
-                log(f"⚠️ Gemini unexpected error: {err[:120]}")
+                log(f"⚠️ Gemini error: {err[:100]}")
                 if attempt == max_retries - 1:
                     raise
     raise Exception("Gemini failed after all retries")
@@ -2211,7 +2209,6 @@ def run_update_checks():
 # Bold Tamil text + rupee/scale icon area
 # ═══════════════════════════════════════════════════════════════
 
-THUMBNAIL_DIR = "thumbnails"
 
 THUMBNAIL_FORMATS = {
     "warning":    {"bg": (160, 20,  20),  "accent": (255, 220, 0),  "badge": "WARNING"},
@@ -2222,95 +2219,6 @@ THUMBNAIL_FORMATS = {
     "news":       {"bg": (10,  10,  10),  "accent": (255,  60, 60), "badge": "BREAKING"},
     "default":    {"bg": (10,  50,  100), "accent": (255, 215, 0),  "badge": "MUST WATCH"},
 }
-
-
-def generate_thumbnail(title, format_type, output_name):
-    """Generate a branded thumbnail using Pillow."""
-    try:
-        from PIL import Image, ImageDraw, ImageFont
-        os.makedirs(THUMBNAIL_DIR, exist_ok=True)
-
-        cfg = THUMBNAIL_FORMATS.get(format_type, THUMBNAIL_FORMATS["default"])
-        W, H = 1280, 720
-        img = Image.new("RGB", (W, H), cfg["bg"])
-        d   = ImageDraw.Draw(img)
-
-        # Brand teal gradient strip on left
-        for x in range(200):
-            alpha = 1 - (x / 200)
-            r = int(cfg["bg"][0] * (1-alpha) + 10 * alpha)
-            g = int(cfg["bg"][1] * (1-alpha) + 80 * alpha)
-            b = int(cfg["bg"][2] * (1-alpha) + 60 * alpha)
-            d.rectangle([x, 0, x+1, H], fill=(r, g, b))
-
-        # Gold accent bar at top
-        d.rectangle([0, 0, W, 12], fill=cfg["accent"])
-        # Gold accent bar at bottom
-        d.rectangle([0, H-12, W, H], fill=cfg["accent"])
-
-        # Format badge (top-right pill)
-        badge = cfg["badge"]
-        bw = len(badge) * 16 + 30
-        bx = W - bw - 30
-        d.rectangle([bx, 20, W-20, 68], fill=cfg["accent"])
-        font = ImageFont.load_default()
-        d.text((bx + 15, 30), badge, fill=cfg["bg"], font=font)
-
-        # Channel name (bottom-left)
-        d.text((30, H - 55), "நிதி நீதி தமிழ்", fill=(200, 200, 200))
-
-        # Rupee symbol (large, right side decoration)
-        d.text((W - 180, H//2 - 80), "₹", fill=(*cfg["accent"], 60))
-
-        # Main title — wrap at 20 chars per line
-        title_clean = title[:90]
-        words = title_clean.split()
-        lines, line = [], ""
-        for w in words:
-            if len(line + w) < 22:
-                line += w + " "
-            else:
-                lines.append(line.strip())
-                line = w + " "
-        if line:
-            lines.append(line.strip())
-
-        y = max(80, H//2 - len(lines) * 40)
-        for line in lines[:4]:
-            d.text((30, y), line, fill=(255, 255, 255))
-            y += 55
-
-        out = f"{THUMBNAIL_DIR}/{output_name}_thumb.png"
-        img.save(out)
-        log(f"  ✅ Thumbnail: {out}")
-        return out
-    except Exception as e:
-        log(f"  ⚠️ Thumbnail generation failed: {e}")
-        return None
-
-
-# ═══════════════════════════════════════════════════════════════
-# FEATURE: COMMENT RESPONDER BOT
-# Auto-replies to viewer comments with helpful Tamil answers
-# Runs separately — python nidhi_neethi_bot.py --respond-comments
-# ═══════════════════════════════════════════════════════════════
-
-COMMENT_RESPONSE_PROMPT = """You are a helpful Tamil finance advisor for "நிதி நீதி தமிழ்" YouTube channel.
-
-A viewer commented on a video about: {topic}
-Their comment: {comment}
-
-Write a SHORT helpful reply in Tamil (under 150 chars).
-Rules:
-1. Be genuinely helpful — answer their question if possible
-2. If complex — say "இதை பற்றி தனி video வரும் 🙏"
-3. End with channel handle if relevant: @NidhiNeethiTamil
-4. No financial advice — say "certified advisor-ஐ consult பண்ணுங்கள்" for specific advice
-5. Never mention you are a bot
-
-Return ONLY the reply text."""
-
-RESPONDED_COMMENTS_FILE = "responded_comments.json"
 
 
 def load_responded():
@@ -2796,6 +2704,110 @@ def validate_tags(tags_str):
             break
     return ", ".join(result)
 
+
+THUMBNAIL_DIR = "thumbnails"
+TAMIL_BOLD_FONT = "/usr/share/fonts/truetype/noto/NotoSansTamil-Bold.ttf"
+TAMIL_REG_FONT  = "/usr/share/fonts/truetype/noto/NotoSansTamil-Regular.ttf"
+ENG_BOLD_FONT   = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+
+NN_THUMB_FORMATS = {
+    "warning":    {"c1":(88,5,5),   "c2":(22,0,0),  "acc":(255,55,55),  "bb":(185,0,0),   "badge":"⚠ WARNING"},
+    "explainer":  {"c1":(5,18,72),  "c2":(0,5,32),  "acc":(75,152,255), "bb":(22,88,192), "badge":"GUIDE"},
+    "rights":     {"c1":(0,52,18),  "c2":(0,16,5),  "acc":(0,202,92),   "bb":(0,142,52),  "badge":"RIGHTS"},
+    "comparison": {"c1":(36,0,72),  "c2":(11,0,32), "acc":(172,72,255), "bb":(112,32,192),"badge":"VS"},
+    "story":      {"c1":(52,20,0),  "c2":(20,5,0),  "acc":(255,132,0),  "bb":(172,82,0),  "badge":"STORY"},
+    "news":       {"c1":(5,5,22),   "c2":(0,0,8),   "acc":(255,192,0),  "bb":(172,132,0), "badge":"BREAKING"},
+    "default":    {"c1":(5,18,48),  "c2":(0,5,22),  "acc":(255,192,45), "bb":(172,132,0), "badge":"FINANCE"},
+}
+
+def generate_thumbnail(title, format_type, output_name):
+    """Premium finance thumbnail — Tamil + English smart font selection."""
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        os.makedirs(THUMBNAIL_DIR, exist_ok=True)
+
+        W, H = 1280, 720
+        cfg = NN_THUMB_FORMATS.get(format_type, NN_THUMB_FORMATS["default"])
+        img = Image.new("RGB",(W,H),cfg["c1"])
+        d   = ImageDraw.Draw(img)
+
+        def is_tamil(text):
+            return any("\u0B80" <= c <= "\u0BFF" for c in text)
+
+        def load_font(text, size, bold=True):
+            try:
+                if is_tamil(text):
+                    return ImageFont.truetype(TAMIL_BOLD_FONT, size)
+                return ImageFont.truetype(ENG_BOLD_FONT, size)
+            except: return ImageFont.load_default()
+
+        def bg_grad():
+            for y in range(H):
+                t=y/H
+                col=tuple(int(cfg["c1"][j]+(cfg["c2"][j]-cfg["c1"][j])*t) for j in range(3))
+                d.line([(0,y),(W,y)],fill=col)
+
+        def shadow_text(x,y,text,size,fill):
+            font=load_font(text,size)
+            for ox,oy in [(3,3),(-2,-2),(2,-2),(-2,2)]:
+                d.text((x+ox,y+oy),text,font=font,fill=(0,0,0))
+            d.text((x,y),text,font=font,fill=fill)
+
+        def wrap(text, n=15):
+            words=text.split()
+            lines,line=[],""
+            for w in words:
+                if len(line+w)<=n: line+=w+" "
+                else:
+                    if line: lines.append(line.strip())
+                    line=w+" "
+            if line: lines.append(line.strip())
+            return lines[:3]
+
+        bg_grad()
+
+        px=int(W*0.66)
+        for x in range(px,W):
+            t=(x-px)/(W-px)
+            col=tuple(max(0,int(c*(1-t*0.45))) for c in cfg["c2"])
+            d.line([(x,0),(x,H)],fill=col)
+        d.polygon([(px-32,0),(px+32,0),(px-32,H),(px-85,H)],fill=cfg["c2"])
+
+        icon_map={"warning":"₹?","explainer":"₹","rights":"⚖","comparison":"VS","story":"★","news":"📢","default":"₹"}
+        icon=icon_map.get(format_type,"₹")
+        ifont=load_font(icon,72)
+        d.text((px+(W-px)//2-38,H//2-42),icon,font=ifont,
+               fill=tuple(min(255,c+32) for c in cfg["c2"]))
+
+        d.rectangle([0,0,W,10],fill=cfg["acc"])
+        d.rectangle([0,H-10,W,H],fill=cfg["acc"])
+
+        btext=cfg["badge"]
+        bw=len(btext)*15+42
+        bfont=load_font(btext,23)
+        d.rounded_rectangle([W-bw-18,16,W-18,62],radius=7,fill=cfg["bb"])
+        d.text((W-bw//2-18,39),btext,font=bfont,fill=(255,255,255),anchor="mm")
+
+        cnfont=load_font("நிதி நீதி தமிழ்",24)
+        d.text((22,18),"நிதி நீதி தமிழ்",font=cnfont,fill=(200,200,200))
+
+        lines=wrap(title,14)
+        ty=100
+        for i,line in enumerate(lines):
+            col=(255,255,255) if i==0 else (222,218,240)
+            shadow_text(22,ty,line,68 if i==0 else 48,col)
+            ty+=(80 if i==0 else 58)
+
+        d.rectangle([22,ty+5,min(22+380,px-15),ty+11],fill=cfg["acc"])
+
+        out=f"{THUMBNAIL_DIR}/{output_name}_thumb.png"
+        img.save(out)
+        log(f"  ✅ Thumbnail: {out}")
+        return out
+    except Exception as e:
+        log(f"  ⚠️ Thumbnail failed: {e}")
+        return None
+
 def upload_to_youtube(video_path, metadata, privacy="public"):
     if not os.path.exists(video_path):
         log(f"❌ Video not found: {video_path}"); return None
@@ -3010,19 +3022,8 @@ def process_video(topic=None, format_type=None, upload=False, privacy="public"):
                 log(f"⚠️ Upload failed (non-fatal): {e}")
     else:
         log(f"❌ Video creation failed ({elapsed:.0f}s)")
-        failure_alert(f"Video failed after {elapsed:.0f}s")
 
     return video
-
-
-def safe_process_video(**kwargs):
-    """Wrapper that catches all exceptions so workflow never fails hard."""
-    try:
-        return process_video(**kwargs)
-    except Exception as e:
-        log(f"❌ Fatal error: {e}")
-        failure_alert(f"Fatal error: {str(e)[:200]}")
-        return None
 
 
 def auth_youtube():
@@ -3137,10 +3138,10 @@ def main():
         daemon_mode(); return
 
     if args.topic:
-        safe_process_video(topic=args.topic, format_type=args.format,
-                           upload=args.upload, privacy=args.privacy)
+        process_video(topic=args.topic, format_type=args.format,
+                      upload=args.upload, privacy=args.privacy)
     elif args.day:
-        safe_process_video(upload=args.upload, privacy=args.privacy)
+        process_video(upload=args.upload, privacy=args.privacy)
     else:
         print("Usage:")
         print("  python nidhi_neethi_bot.py --day today")
