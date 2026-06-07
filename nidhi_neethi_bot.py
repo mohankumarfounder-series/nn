@@ -671,7 +671,7 @@ def _call_github(prompt_text):
         return None
 
 
-def call_llm(prompt_text, task="economy"):
+def call_llm(prompt_text, prefer="gemini", max_tokens=2000):
     global _QUOTA_EXHAUSTED
     if _QUOTA_EXHAUSTED and task not in ("script", "topic"):
         log("Quota exhausted, skipping non-critical LLM call")
@@ -1606,7 +1606,7 @@ def discover_daily_config():
             f"Prefer '{insights.get('best_topic_group','')}' topic group if relevant today."
         )
 
-    raw = call_llm(prompt, task="topic")
+    raw = call_llm(prompt, prefer="gemini", max_tokens=1000)
     try:
         data = parse_json_response(raw)
         data["topic"] = deduplicate_topic(data["topic"])
@@ -1647,7 +1647,7 @@ def generate_script(topic, format_type, hook_angle, voice_gender):
 
     text = ""
     for attempt in range(3):
-        resp = call_llm(build_prompt(attempt), task="script")
+        resp = call_llm(build_prompt(attempt))
         chars = len(resp.strip())
         log(f"  Attempt {attempt+1}: {chars} chars")
         if chars >= TARGET_MIN_CHARS:
@@ -1699,7 +1699,7 @@ def generate_metadata(topic, format_type, hook_angle):
         format_type=format_type,
         hook_angle=hook_angle,
     )
-    raw = call_llm(prompt, task="script")
+    raw = call_llm_groq(prompt, max_retries=3)
     try:
         return parse_json_response(raw)
     except Exception as e:
@@ -2449,7 +2449,7 @@ def generate_nri_video():
 
     # NRI topic
     topic = call_llm(NRI_TOPIC_PROMPT.format(
-        date=now.strftime("%Y-%m-%d")), task="topic").strip().strip('"')
+        date=now.strftime("%Y-%m-%d"))).strip().strip('"')
     log(f"  NRI Topic: {topic}")
 
     # NRI config — English-forward, comparison format
