@@ -1668,6 +1668,9 @@ def generate_script(topic, format_type, hook_angle, voice_gender):
                 break
         text = trimmed
 
+    if not text.strip():
+        log("  ❌ Script generation failed — all attempts returned empty")
+        return ""
     log(f"  ✅ Script: {len(text)} chars in {time.time()-t0:.0f}s")
     return text
 
@@ -3014,6 +3017,9 @@ def process_video(topic=None, format_type=None, upload=False, privacy="public"):
     # Sequential not parallel — avoids double Groq 429 rate limit hits
     log("🤖 Step 1: Generating script...")
     script = generate_script(topic_val, fmt, hook_angle, gender)
+    if not script or not script.strip():
+        log("  ❌ Script empty — aborting pipeline")
+        return None
 
     log("🤖 Step 2: Generating subtitles + metadata + MCQ (parallel)...")
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
