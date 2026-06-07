@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ╔══════════════════════════════════════════════════════════════════╗
-║          நிதி நீதி தமிழ் — FULLY AUTOMATED BOT v1.8            ║
+║          நிதி நீதி தமிழ் — FULLY AUTOMATED BOT v1.9            ║
 ║  Tamil Finance & Legal Rights YouTube Channel                   ║
 ║  Thumbnail · Comments · NRI · Analytics · Community tab        ║
 ║  Auto topic · Pexels visuals · YouTube upload · Daily 6AM IST  ║
@@ -307,6 +307,24 @@ CRITICAL RULES:
 6. NO headers, bullets, numbering, markdown — pure flowing speech
 7. Information must be COMPLETE — viewer should not need to search elsewhere
 8. Every sentence must earn its place — no filler, no repetition
+
+YOUTUBE RETENTION RULES (follow these — they affect algorithm ranking):
+1. HOOK (0-15s): Must deliver EXACTLY what the title/thumbnail promises.
+   Start with the most surprising fact or the exact answer preview.
+   Bad: "வணக்கம், இன்று நாம் பேசப்போவது..."
+   Good: "உங்கள் CIBIL score நேற்று இரவு drop ஆயிருக்கு. காரணம் தெரியுமா?"
+
+2. PATTERN INTERRUPT (every 30s): Change energy, pace, or angle.
+   Use phrases like "ஆனால் இதில் ஒரு twist இருக்கு..." or "இதை யாரும் சொல்ல மாட்டாங்க..."
+
+3. OPEN LOOP: Create curiosity that isn't resolved until Beat 3.
+   Example in Beat 1: "இந்த ஒரு mistake செய்தால் உங்கள் loan reject ஆகும் — Beat 3-ல் சொல்கிறேன்"
+
+4. SPECIFIC NUMBERS: "73% of Indians", "₹2,340 கோடி", "exactly 48 hours"
+   Vague content loses viewers. Specific numbers build trust.
+
+5. CTA at Beat 4: Don't beg for likes. Create FOMO:
+   "நாளை இதே தலைப்பில் part 2 — subscribe பண்ணாவிட்டால் miss ஆகும்"
 """
 
 SUBTITLE_PROMPT = """You are a professional subtitle translator.
@@ -379,6 +397,26 @@ THUMBNAIL CONCEPT:
 - Right 40%: visual element (rupee symbol, court scale, phone with alert etc)
 - Small channel logo bottom-right
 - High contrast — readable at 120px thumbnail size
+
+MONETISATION-FOCUSED SEO RULES:
+
+TITLE (critical for CTR — 60% of views come from title+thumbnail):
+- Must create curiosity OR promise clear benefit
+- Use numbers: "5 வழிகள்", "இந்த 1 mistake", "₹50,000 சேமிக்க"
+- Question format gets 23% higher CTR: "CIBIL score drop ஆனால் என்ன நடக்கும்?"
+- Power words: உண்மை, தெரியாத, இலவசம், உடனே, இப்பவே
+
+DESCRIPTION LINE 1 (= Google/YouTube search snippet):
+Write the hook question or key benefit here — viewers decide to click from this.
+
+DESCRIPTION LINE 2 (= reinforces click decision):
+"Learn [exact topic] in Tamil | Complete guide by நிதி நீதி தமிழ்"
+
+CHAPTER TIMESTAMPS (YouTube shows these as "Key moments" in search):
+Must match actual script beats. Use real times not placeholders.
+
+TAGS: Mix Tamil search terms + English equivalents
+Example: "CIBIL score" + "credit score tamil" + "how to improve cibil score in tamil"
 """
 
 THUMBNAIL_PROMPT = """Create a detailed AI image generation prompt for a YouTube thumbnail.
@@ -1290,7 +1328,8 @@ def create_video(script_text, english_subtitles, images_input, output_name,
     cmd.extend(["-i", audio, "-filter_complex", vfilter,
                 "-map", f"[{vlabel}]", "-map", f"{num_inputs}:a",
                 "-c:v", "libx264", "-preset", "veryfast", "-crf", "24",
-                "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest",
+                "-pix_fmt", "yuv420p", "-c:a", "aac",
+                "-ar", "44100", "-ac", "2",
                 "-avoid_negative_ts", "make_zero", raw_file])
     r = run(cmd, timeout=400)
     if r.returncode != 0:
@@ -1299,7 +1338,8 @@ def create_video(script_text, english_subtitles, images_input, output_name,
                  "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,"
                         "pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
                  "-c:v", "libx264", "-preset", "veryfast", "-crf", "24",
-                 "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", raw_file],
+                 "-pix_fmt", "yuv420p", "-c:a", "aac",
+                  "-ar", "44100", "-ac", "2", raw_file],
                 timeout=300)
         if r.returncode != 0:
             log("❌ Video encoding failed"); return None
@@ -2719,6 +2759,11 @@ def validate_script(text, lang="tamil"):
     text = re.sub(r"^[-*]\s+", "", text, flags=re.MULTILINE)     # bullets
     text = re.sub(r"^\d+\.\s+", "", text, flags=re.MULTILINE)  # numbered lists
     text = re.sub(r"```[^`]*```", "", text, flags=re.DOTALL)      # code blocks
+    text = re.sub(r"\\[BEAT \\d+[^\\]]*\\]", "", text)                  # [BEAT 1] labels
+    text = re.sub(r"\\[[A-Z][A-Z ]+\\]", "", text)                     # [HOOK] [CTA] labels
+    text = re.sub(r"^\\s*\\*{2,}.*?\\*{2,}\\s*$", "", text, flags=re.MULTILINE) # **headers**
+    text = re.sub(r"^-{3,}\\s*$", "", text, flags=re.MULTILINE)         # --- dividers
+    text = re.sub(r"\\n{3,}", "\\n\\n", text)                            # excess blank lines
     text = text.strip()
 
     # Check Tamil character ratio (should be >40% for Tamil scripts)
