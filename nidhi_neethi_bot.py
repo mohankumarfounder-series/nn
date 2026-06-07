@@ -571,16 +571,17 @@ def save_used_topic(topic):
 # ═══════════════════════════════════════════════════════════════
 
 def _call_gemini(prompt_text, model_name=GEMINI_MODEL_ECONOMY):
-    import google.generativeai as genai
     import time
     import random
-    genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
+    if not GEMINI_KEY:
+        raise Exception("GEMINI_KEY not set")
+    client = genai.Client(api_key=GEMINI_KEY)
     max_attempts = 3
     for attempt in range(max_attempts):
         try:
-            model = genai.GenerativeModel(model_name)
-            response = model.generate_content(prompt_text)
-            return response.text
+            resp = client.models.generate_content(
+                model=model_name, contents=prompt_text)
+            return resp.text
         except Exception as e:
             if "429" in str(e) or "quota" in str(e).lower():
                 global _QUOTA_EXHAUSTED
@@ -1554,7 +1555,7 @@ def discover_daily_config():
             f"Prefer '{insights.get('best_topic_group','')}' topic group if relevant today."
         )
 
-    raw = call_llm(prompt)
+    raw = call_llm(prompt, task="topic")
     try:
         data = parse_json_response(raw)
         log(f"  📌 Topic: {data['topic']}")
@@ -1564,6 +1565,7 @@ def discover_daily_config():
     except Exception as e:
         log(f"  ⚠️ JSON parse failed ({e}) — using random evergreen")
         return {
+
             "topic":           random.choice(EVERGREEN_TOPICS),
             "format":          random.choice(CONTENT_FORMAT_TYPES),
             "pexels_keyword":  "default",
@@ -1642,12 +1644,13 @@ def generate_metadata(topic, format_type, hook_angle):
         format_type=format_type,
         hook_angle=hook_angle,
     )
-    raw = call_llm(prompt)
+    raw = call_llm(prompt, task="script")
     try:
         return parse_json_response(raw)
     except Exception as e:
         log(f"  ⚠️ Metadata JSON parse failed ({e}) — using structured fallback")
         return {
+
             "title": f"{topic[:55]} | {CHANNEL_NAME}",
             "description": (
                 f"{hook_angle}\n"
@@ -2391,7 +2394,7 @@ def generate_nri_video():
 
     # NRI topic
     topic = call_llm(NRI_TOPIC_PROMPT.format(
-        date=now.strftime("%Y-%m-%d"))).strip().strip('"')
+        date=now.strftime("%Y-%m-%d")), task="topic").strip().strip('"')
     log(f"  NRI Topic: {topic}")
 
     # NRI config — English-forward, comparison format
