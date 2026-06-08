@@ -217,121 +217,46 @@ CONTENT_FORMAT_TYPES = [
 # PROMPTS
 # ═══════════════════════════════════════════════════════════════
 
-DAILY_TOPIC_PROMPT = """You are a content strategist for "நிதி நீதி தமிழ்" — a Tamil YouTube channel covering personal finance and legal rights for middle-class Tamil people.
-
-YOUR AUDIENCE: Salaried Tamil people aged 25-45, earning ₹20,000-₹80,000/month. They worry about loans, CIBIL scores, savings, job rights, bank frauds, and government schemes. They are NOT financial experts.
+DAILY_TOPIC_PROMPT = """நீங்கள் "நிதி நீதி தமிழ்" YouTube channel-க்கான content strategist.
+இந்த channel Tamil middle-class families-க்கு finance மற்றும் legal rights பற்றி educate செய்கிறது.
 
 TODAY: {date} | {day}
-FINANCE NEWS (raw — needs viewer-friendly translation): {finance_news}
-TRENDING SEARCHES: {trends}
-RECENTLY USED TOPICS (DO NOT repeat any of these): {recent_topics}
+RECENT FINANCE NEWS: {news}
+RECENTLY USED TOPICS (DO NOT pick similar): {recent_topics}
 
-STEP 1 — NEWS TRANSLATION RULE:
-If using news, NEVER use raw RBI/SEBI jargon as the topic.
-Translate it to viewer impact. Examples:
-  ❌ BAD: "RBI விற்கு VRR ஏலம் அறிவிப்பு" (meaningless to viewer)
-  ✅ GOOD: "RBI வட்டி விகிதம் மாறினால் உங்கள் EMI என்னாகும்?" (viewer impact)
-  ❌ BAD: "SEBI circular on mutual fund NAV"
-  ✅ GOOD: "Mutual Fund-ல் பணம் போட்டால் இப்போது safe-ஆ? SEBI புதிய விதி"
+⚠️ CRITICAL DIVERSITY RULE: Check recent topics. If last 3 videos were about RBI/interest rates/loans —
+you MUST pick from a completely different category today.
 
-STEP 2 — TOPIC QUALITY CHECK:
-Before finalising, ask: "Will a 30-year-old Chennai office employee immediately want to watch this?"
-If no → pick a different topic.
+CATEGORY WHEEL — rotate through these 8 categories, never same category 2 days in a row:
+1. BANKING TRAPS — hidden charges, mis-selling, rights when bank harasses you
+2. INVESTMENT BASICS — FD vs MF vs gold vs SIP, which is best for whom
+3. CONSUMER RIGHTS — how to complain, get refunds, fight companies legally
+4. TAX SAVINGS — actual deductions most people miss, Section 80C explained simply
+5. INSURANCE TRUTH — what your agent won't tell you, term vs endowment
+6. CIBIL & LOANS — score myths, how banks actually decide, what to do if rejected
+7. DAILY MONEY HABITS — budgeting mistakes, salary management, EMI traps
+8. GOVT SCHEMES — schemes most Tamil people don't claim, how to apply
 
-STEP 3 — FORMAT SELECTION:
-- warning: fraud alerts, EMI traps, loan dangers (high CTR)
-- explainer: how SIP works, what CIBIL means (educational)
-- rights: consumer court, bank complaint, RTI (empowering)
-- comparison: FD vs RD, loan types (analytical)
-- story: real situation → problem → solution (emotional)
-- news: RBI/govt decision translated to viewer impact (timely)
+GREAT TOPIC FORMULA = Specific Problem + Surprising Fact + Action Step
+Examples:
+- "வங்கி உங்களுக்கு தவறாக charges போட்டால் — 48 மணி நேரத்தில் திரும்ப பெறலாம்" (Banking trap)
+- "₹500 SIP vs ₹500 FD — 20 வருஷத்தில் எவ்வளவு வித்தியாசம்?" (Investment)  
+- "நீங்கள் pay பண்றீங்களா இந்த 7 hidden bank charges?" (Banking trap)
+- "Salary-ல் 10% மட்டும் save பண்ணினால் 60-ல் ₹1 Crore — எப்படி?" (Daily money)
 
-STEP 4 — UNIQUENESS CHECK:
-The recently used topics above must NOT be repeated even in different phrasing.
+BAD TOPICS (avoid): Vague RBI updates, generic "save money" advice, duplicate of recent topics
 
-Return ONLY valid JSON, nothing else:
+Return ONLY valid JSON:
 {{
-  "topic": "<Viewer-friendly Tamil topic — clickable, specific, emotionally relevant>",
-  "format": "<warning/explainer/rights/comparison/story/news>",
-  "pexels_keyword": "<loan/cibil/investment/fraud/legal/tax/insurance/rights/bank/salary/rbi>",
-  "hook_angle": "<First 5 seconds — the exact fear or curiosity you trigger>",
-  "reason": "<Why this topic today, why this format>"
-}}"""
-
-SCRIPT_PROMPT = """You are a professional Tamil YouTube scriptwriter for "நிதி நீதி தமிழ்" — a finance and legal rights channel trusted by Tamil middle-class families.
-
-Topic: {topic}
-Format: {format_type}
-Hook: {hook_angle}
-Voice: {voice_gender}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━
-SCRIPT STRUCTURE (follow exactly — 4 beats):
-
-BEAT 1 — HOOK (15 seconds)
-Use the hook angle above. Make it feel urgent or curious.
-DO NOT introduce yourself. Jump straight into the problem or surprise fact.
-Example good hook: "உங்கள் CIBIL score இன்று 100 points கீழே போயிருக்கு... காரணம் தெரியுமா?"
-Example bad hook: "வணக்கம் நண்பர்களே, இன்று நாம் பேசப்போவது..."
-
-BEAT 2 — CORE INFORMATION (60 seconds)
-This is the most important part. Deliver COMPLETE, ACCURATE information.
-- Give the actual facts, numbers, percentages, steps — NOT vague generalities
-- If explaining a process: give each step clearly (step 1... step 2...)
-- If warning: explain exactly what the trap is and how it works
-- If comparing: give real numbers for both sides
-- NEVER say "இன்னும் நிறைய இருக்கு" or leave things incomplete
-- Use real data: actual RBI rules, actual percentages, actual timeframes
-
-BEAT 3 — PRACTICAL TAKEAWAY (25 seconds)
-ONE specific action the viewer can take TODAY.
-Make it so simple a first-time viewer can act on it immediately.
-Example: "இப்பவே உங்கள் phone-ல் CIBIL app திறந்து free report download பண்ணுங்க"
-
-BEAT 4 — CTA (10 seconds)
-Natural close. Thank viewer. One line subscribe ask.
-DO NOT sound desperate. Sound like a knowledgeable friend.
-━━━━━━━━━━━━━━━━━━━━━━━━━
-
-FORMAT TONE:
-- warning:    urgent, protective friend — "இந்த தவறை நான் உங்களிடம் சொல்லியே ஆகணும்"
-- explainer:  clear teacher — "step by step பார்க்கலாம்"
-- rights:     empowering lawyer friend — "சட்டம் உங்கள் பக்கம் இருக்கு"
-- comparison: data-driven friend — "numbers பேசட்டும்"
-- story:      storyteller — situation → problem → solution (NO fictional names — say "ஒரு Chennai-ல் இருக்கிற software engineer" not "Rajan என்பவர்")
-- news:       confident news anchor tone
-
-CRITICAL RULES:
-1. 380-420 Tamil words exactly (2 min at natural pace)
-2. NO fictional Tamil names (Rajan, Priya, Murugan etc) — say roles instead:
-   ✅ "ஒரு Chennai software engineer"
-   ✅ "ஒரு 35 வயது bank employee"
-   ❌ "ராஜன் என்பவர்" (sounds fake, breaks trust)
-3. Use REAL numbers — actual RBI rates, actual law sections, actual timeframes
-4. Conversational Tamil — NOT formal written Tamil. How you talk to a friend.
-5. "..." for natural pauses at key moments
-6. NO headers, bullets, numbering, markdown — pure flowing speech
-7. Information must be COMPLETE — viewer should not need to search elsewhere
-8. Every sentence must earn its place — no filler, no repetition
-
-YOUTUBE RETENTION RULES (follow these — they affect algorithm ranking):
-1. HOOK (0-15s): Must deliver EXACTLY what the title/thumbnail promises.
-   Start with the most surprising fact or the exact answer preview.
-   Bad: "வணக்கம், இன்று நாம் பேசப்போவது..."
-   Good: "உங்கள் CIBIL score நேற்று இரவு drop ஆயிருக்கு. காரணம் தெரியுமா?"
-
-2. PATTERN INTERRUPT (every 30s): Change energy, pace, or angle.
-   Use phrases like "ஆனால் இதில் ஒரு twist இருக்கு..." or "இதை யாரும் சொல்ல மாட்டாங்க..."
-
-3. OPEN LOOP: Create curiosity that isn't resolved until Beat 3.
-   Example in Beat 1: "இந்த ஒரு mistake செய்தால் உங்கள் loan reject ஆகும் — Beat 3-ல் சொல்கிறேன்"
-
-4. SPECIFIC NUMBERS: "73% of Indians", "₹2,340 கோடி", "exactly 48 hours"
-   Vague content loses viewers. Specific numbers build trust.
-
-5. CTA at Beat 4: Don't beg for likes. Create FOMO:
-   "நாளை இதே தலைப்பில் part 2 — subscribe பண்ணாவிட்டால் miss ஆகும்"
+  "topic": "<specific Tamil topic with a number or surprising fact>",
+  "format": "<warning|explainer|rights|comparison|story|news>",
+  "category_number": <1-8>,
+  "hook_angle": "<the most shocking or useful single fact about this topic>",
+  "news": "<relevant current event if any, or 'evergreen'>",
+  "reason": "<why this is NOT similar to recent topics>"
+}}
 """
+
 
 SUBTITLE_PROMPT = """You are a professional subtitle translator.
 
