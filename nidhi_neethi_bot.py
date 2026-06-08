@@ -221,7 +221,7 @@ DAILY_TOPIC_PROMPT = """நீங்கள் "நிதி நீதி தம�
 இந்த channel Tamil middle-class families-க்கு finance மற்றும் legal rights பற்றி educate செய்கிறது.
 
 TODAY: {date} | {day}
-RECENT FINANCE NEWS: {news}
+RECENT FINANCE NEWS: {finance_news}
 RECENTLY USED TOPICS (DO NOT pick similar): {recent_topics}
 
 ⚠️ CRITICAL DIVERSITY RULE: Check recent topics. If last 3 videos were about RBI/interest rates/loans —
