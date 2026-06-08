@@ -2,8 +2,8 @@ name: Daily Videos
 
 on:
   schedule:
-    - cron: "30 1 * * *"   # 7:00 AM IST
-    - cron: "30 14 * * *"  # 8:00 PM IST
+    - cron: "33 21 * * *"   # 21:33 UTC = 03:03 IST
+    - cron: "3 14 * * *"   # 14:03 UTC = 19:33 IST
   workflow_dispatch:
     inputs:
       topic:
