@@ -78,7 +78,6 @@ GROQ_MODEL   = "llama-3.3-70b-versatile"
 GEMINI_MODEL_ECONOMY  = "gemini-1.5-flash"
 GEMINI_MODEL_STANDARD = "gemini-2.0-flash"
 GEMINI_MODEL_PREMIUM  = "gemini-2.5-flash"
-_QUOTA_EXHAUSTED = False
 BGM_FILE     = "bgm.mp3"
 OUTPUT_DIR   = "videos"
 SHORTS_DIR   = "shorts"
@@ -507,131 +506,6 @@ def save_used_topic(topic):
 # LLM ROUTER — Groq for scripts only, Gemini for everything else
 # Keeps Groq daily usage ~26K/100K tokens (was 96K+)
 # ═══════════════════════════════════════════════════════════════
-
-def _call_gemini(prompt_text, model_name=GEMINI_MODEL_ECONOMY):
-    global _QUOTA_EXHAUSTED
-    if _QUOTA_EXHAUSTED:
-        return ""
-    import time
-    import random
-    if not GEMINI_KEY:
-        raise Exception("GEMINI_KEY not set")
-    client = genai.Client(api_key=GEMINI_KEY)
-    max_attempts = 2
-    for attempt in range(max_attempts):
-        try:
-            resp = client.models.generate_content(
-                model=model_name, contents=prompt_text)
-            return resp.text
-        except Exception as e:
-            err_str = str(e)
-            if "429" in err_str or "quota" in err_str.lower() or "RESOURCE_EXHAUSTED" in err_str:
-                _QUOTA_EXHAUSTED = True
-                log(f"Quota exhausted on {model_name}. Attempt {attempt+1}/{max_attempts}")
-                if attempt < max_attempts - 1:
-                    sleep_time = random.uniform(15, 25) * (2 ** attempt)
-                    log(f"Backing off {sleep_time:.0f}s before retry...")
-                    time.sleep(sleep_time)
-                    continue
-            elif "404" in err_str or "NOT_FOUND" in err_str:
-                log(f"Model {model_name} not found, skipping")
-                return ""
-            else:
-                log(f"Gemini call failed: {e}")
-                if attempt < max_attempts - 1:
-                    time.sleep(5)
-                    continue
-            return ""
-    return ""
-
-
-def _call_groq(prompt, max_retries=3):
-    """Groq — quality model, used ONLY for script generation."""
-    if not (GROQ_API_KEY and Groq):
-        return None
-    for attempt in range(max_retries):
-        try:
-            client = Groq(api_key=GROQ_API_KEY)
-            resp = client.chat.completions.create(
-                messages=[{"role": "user", "content": prompt}],
-                model=GROQ_MODEL, temperature=0.85, max_tokens=4000,
-            )
-            return resp.choices[0].message.content
-        except Exception as e:
-            err = str(e)
-            if "tokens per day" in err or "TPD" in err:
-                log("⚠️ Groq daily token limit reached — falling back to Gemini")
-                return None
-            if "429" in err or "rate_limit" in err.lower():
-                wait = 10 * (attempt + 1)
-                log(f"⏳ Groq 429 retry {attempt+1}/{max_retries} in {wait}s...")
-                time.sleep(wait)
-            else:
-                return None
-    log("⚠️ Groq unavailable — falling back to Gemini")
-    return None
-
-
-def _call_github(prompt_text):
-    if not GITHUB_TOKEN:
-        return None
-    import requests
-    try:
-        resp = requests.post(
-            "https://models.inference.ai.azure.com/chat/completions",
-            headers={"Authorization": f"Bearer {GITHUB_TOKEN}", "Content-Type": "application/json"},
-            json={"model": GH_MODEL, "messages": [{"role": "user", "content": prompt_text}],
-                  "temperature": 0.7, "max_tokens": 4000},
-            timeout=60,
-        )
-        if resp.status_code == 200:
-            return resp.json()["choices"][0]["message"]["content"]
-        if resp.status_code == 429:
-            log("GitHub model rate limited")
-        else:
-            log(f"GitHub model returned {resp.status_code}")
-        return None
-    except Exception as e:
-        log(f"GitHub model call failed: {e}")
-        return None
-
-
-def call_llm(prompt_text, prefer="gemini", max_tokens=2000):
-    global _QUOTA_EXHAUSTED
-    if _QUOTA_EXHAUSTED and task not in ("script", "topic"):
-        log("Quota exhausted, skipping non-critical LLM call")
-        return ""
-
-    if task in ("script", "topic"):
-        log(f"call_llm task={task}: trying Groq (LLaMA) first")
-        try:
-            result = _call_groq(prompt_text)
-            if result and result.strip():
-                return result
-        except Exception as e:
-            log(f"Groq failed for {task}: {e}")
-
-    if task != "premium":
-        result = _call_github(prompt_text)
-        if result and result.strip():
-            return result
-
-    tier_map = {
-        "economy":  [GEMINI_MODEL_ECONOMY,  GEMINI_MODEL_STANDARD, GEMINI_MODEL_PREMIUM],
-        "standard": [GEMINI_MODEL_STANDARD, GEMINI_MODEL_PREMIUM],
-        "premium":  [GEMINI_MODEL_PREMIUM],
-    }
-    models = tier_map.get(task, tier_map["economy"])
-    for model_name in models:
-        if _QUOTA_EXHAUSTED:
-            log(f"Quota exhausted, skipping remaining models in tier")
-            break
-        log(f"call_llm task={task} model={model_name}")
-        result = _call_gemini(prompt_text, model_name=model_name)
-        if result and result.strip():
-            return result
-    return ""
-
 
 def parse_json_response(raw):
     clean = raw.strip()
@@ -2243,10 +2117,6 @@ def respond_to_comments():
     Skips: spam, already responded, bot comments
     Max 10 replies per run to avoid spam detection.
     """
-    global _QUOTA_EXHAUSTED
-    if _QUOTA_EXHAUSTED:
-        log("Quota exhausted, skipping comment responses")
-        return
     log("💬 Responding to viewer comments...")
     youtube = get_authenticated_service()
     if not youtube:
