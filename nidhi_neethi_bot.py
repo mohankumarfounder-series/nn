@@ -2979,6 +2979,47 @@ def upload_to_youtube(video_path, metadata, privacy="public"):
 # MAIN PIPELINE
 # ═══════════════════════════════════════════════════════════════
 
+def _get_fallback_script(topic, format_type):
+    """Return a pre-written evergreen script when all LLM providers fail.
+    Ensures channel never misses a day due to quota exhaustion."""
+    fallbacks = {
+        "warning": (
+            "உங்கள் வங்கி கணக்கில் யாரோ மோசடி செய்கிறார்களா? "
+            "இந்த அறிகுறிகளை கவனியுங்கள். "
+            "முதல் அறிகுறி, உங்களுக்கு தெரியாத transactions கணக்கில் தெரிந்தால் "
+            "உடனே வங்கிக்கு தகவல் கொடுங்கள். "
+            "இரண்டாவது, OTP யாரிடமும் சொல்லாதீர்கள். "
+            "மூன்றாவது, fake customer care numbers-ல் பேசாதீர்கள். "
+            "உங்கள் பணத்தை பாதுகாக்க இந்த மூன்று விஷயங்களை மனதில் வையுங்கள். "
+            "உங்கள் நண்பர்களுக்கும் share பண்ணுங்கள். "
+            "இந்த channel-ஐ subscribe பண்ணி bell icon அழுத்துங்கள்."
+        ),
+        "explainer": (
+            "CIBIL score என்றால் என்ன? இது உங்கள் loan-க்கு எப்படி பாதிக்கிறது? "
+            "CIBIL score 300 முதல் 900 வரை இருக்கும். "
+            "750-க்கு மேல் இருந்தால் bank loan எளிதாக கிடைக்கும். "
+            "EMI-யை சரியான நேரத்தில் கட்டுங்கள், score அதிகரிக்கும். "
+            "Credit card-ஐ responsible-ஆக பயன்படுத்துங்கள். "
+            "Score-ஐ ஆண்டுக்கு ஒரு முறை check பண்ணுங்கள். "
+            "இந்த tips follow பண்ணினால் உங்கள் financial future பாதுகாப்பாக இருக்கும். "
+            "Subscribe பண்ணி daily finance tips பெறுங்கள்."
+        ),
+        "rights": (
+            "உங்களுக்கு தெரியுமா? Consumer Protection Act-ல் உங்களுக்கு "
+            "பல முக்கியமான உரிமைகள் இருக்கின்றன. "
+            "தவறான product கிடைத்தால் 30 நாளில் return பண்ணலாம். "
+            "Service சரியாக இல்லாவிட்டால் consumer court-ல் complaint பண்ணலாம். "
+            "Hidden charges போட்டால் refund கேட்கலாம். "
+            "உங்கள் rights பற்றி தெரிந்தால் யாரும் ஏமாற்ற முடியாது. "
+            "இந்த channel-ஐ follow பண்ணி உங்கள் rights பற்றி அறிந்துகொள்ளுங்கள்."
+        ),
+    }
+    script = fallbacks.get(format_type, fallbacks.get("explainer", ""))
+    if script:
+        log(f"  📝 Fallback script ({format_type}): {len(script)} chars")
+    return script
+
+
 def process_video(topic=None, format_type=None, upload=False, privacy="public"):
     ensure_dirs()
     t_start = time.time()
@@ -3026,8 +3067,11 @@ def process_video(topic=None, format_type=None, upload=False, privacy="public"):
     log("🤖 Step 1: Generating script...")
     script = generate_script(topic_val, fmt, hook_angle, gender)
     if not script or not script.strip():
-        log("  ❌ Script empty — aborting pipeline")
-        return None
+        log("  ⚠️ All LLM providers failed — using pre-written fallback script")
+        script = _get_fallback_script(topic_val, fmt)
+        if not script:
+            log("  ❌ No fallback available — aborting")
+            return None
 
     log("🤖 Step 2: Generating subtitles + metadata + MCQ (parallel)...")
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
