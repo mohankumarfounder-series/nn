@@ -2636,10 +2636,21 @@ def failure_alert(message):
     log(f"❌ ALERT: {message}")
 
 def validate_tags(tags_str):
-    """YouTube max: 500 chars total, max 30 tags."""
-    tags = [t.strip() for t in tags_str.split(",") if t.strip()][:30]
-    result, total = [], 0
+    """YouTube max: 500 chars total, max 30 tags, no special chars."""
+    import re as _re
+    tags = [t.strip() for t in tags_str.split(",") if t.strip()]
+    cleaned = []
     for tag in tags:
+        # Remove chars YouTube rejects: < > " & # @ and leading/trailing special chars
+        tag = _re.sub(r'[<>"&]', '', tag)
+        tag = tag.strip('#@').strip()
+        # Max 100 chars per tag
+        tag = tag[:100].strip()
+        if tag and len(tag) >= 2:
+            cleaned.append(tag)
+    # Enforce 500 char total, max 30 tags
+    result, total = [], 0
+    for tag in cleaned[:30]:
         if total + len(tag) + 1 <= 490:
             result.append(tag)
             total += len(tag) + 1
@@ -2956,6 +2967,54 @@ def upload_pending_from_queue():
             except: pass
     except Exception as e:
         log(f"  ⚠️ Queue processing failed: {e}")
+
+
+def upload_short_to_youtube(short_path, main_title, main_description, tags_str, youtube=None):
+    """Upload a Short to YouTube — independent of main video upload."""
+    from googleapiclient.http import MediaFileUpload
+    from googleapiclient.errors import HttpError
+
+    if not os.path.exists(short_path):
+        log(f"  ⚠️ Short not found: {short_path}")
+        return None
+
+    yt = youtube or get_authenticated_service()
+    if not yt:
+        return None
+
+    short_title = main_title[:90] + " #Shorts" if len(main_title) <= 90 else main_title[:88] + "... #Shorts"
+    short_title = short_title[:100]
+
+    body = {
+        "snippet": {
+            "title":           short_title,
+            "description":     main_description[:1000] + "\n\n#Shorts #நிதிநீதிதமிழ் #TamilFinance",
+            "tags":            [t.strip() for t in validate_tags(tags_str).split(",") if t.strip()][:20],
+            "categoryId":      "22",
+            "defaultLanguage": "ta",
+        },
+        "status": {
+            "privacyStatus":           "public",
+            "selfDeclaredMadeForKids": False,
+        }
+    }
+
+    try:
+        media = MediaFileUpload(short_path, mimetype="video/mp4",
+                                resumable=True, chunksize=5*1024*1024)
+        req  = yt.videos().insert(part="snippet,status", body=body, media_body=media)
+        resp = None
+        while resp is None:
+            _, resp = req.next_chunk()
+        vid_id = resp["id"]
+        log(f"  ✅ Short live: https://youtu.be/{vid_id}")
+        return vid_id
+    except HttpError as e:
+        if is_quota_exceeded(e):
+            log(f"  ⚠️ Short upload quota exceeded")
+        else:
+            log(f"  ⚠️ Short upload failed: {e}")
+        return None
 
 
 def upload_to_youtube(video_path, metadata, privacy="public"):
