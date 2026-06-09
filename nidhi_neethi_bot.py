@@ -1506,6 +1506,8 @@ def generate_script(topic, format_type, hook_angle, voice_gender):
             format_type=format_type,
             hook_angle=hook_angle,
             voice_gender=voice_gender,
+            target_min_words=380,
+            target_max_words=420,
         ) + note
 
     text = ""
