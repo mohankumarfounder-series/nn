@@ -19,7 +19,8 @@ BEAT 1 — HOOK (15 seconds) — யாரும் scroll stop பண்ண வ
   STORY pattern:   "என் நண்பன் ₹2 லட்சம் இழந்தான் — இந்த ஒரு தவறால்."
   QUESTION pattern: "உங்கள் salary-ல் எவ்வளவு actually save ஆகுது? பதில் கேட்டால் shock ஆவீங்க."
   FACT pattern:    "₹500 SIP — 30 வருஷம் — ₹1.7 Crore. இது magic இல்ல, math."
-  NO "வணக்கம் நண்பர்களே" NO "இன்று நாம் பேசப்போவது"
+  NO "வணக்கம் நண்பர்களே" NO "இன்று நாம் பேசப்போவது" NO "கவனமாக கேளுங்கள்"
+  OPEN WITH: shocking number OR friend's story OR question that stings
 
 BEAT 2 — THE REAL INFORMATION (60 seconds):
   Specific numbers: "₹100 per day penalty", "750+ score needed", "30 நாள் deadline"
@@ -34,8 +35,13 @@ BEAT 3 — ACTION STEP (25 seconds):
   NOT generic: "சேமியுங்கள்" or "invest பண்ணுங்கள்"
 
 BEAT 4 — CLOSE (10 seconds):
-  Question that makes people comment: "FD நல்லதா SIP நல்லதா? உங்கள் choice comment பண்ணுங்கள்"
-  OR: "உங்கள் bank இந்த trick use பண்றதா? கீழே சொல்லுங்கள் 👇"
+  Two options — pick the stronger one for this topic:
+  A) SHARE TRIGGER: "இந்த video உங்கள் family-க்கு share பண்ணுங்கள் — இந்த தவறை அவங்களும் செய்கிறார்களா?"
+  B) COMMENT TRIGGER: "உங்கள் bank இந்த charge போட்டிருக்காங்களா? கீழே comment பண்ணுங்கள் 👇"
+  C) NEXT VIDEO HOOK: "அடுத்த video-ல் இன்னும் ஒரு bank trick பார்க்கலாம் — subscribe பண்ணிட்டீங்களா?"
+  Pick A for consumer rights/fraud topics (most shareable)
+  Pick B for banking/CIBIL topics (drives comments)
+  Pick C for investment topics (builds subscribers)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━
 HARD RULES:
@@ -300,6 +306,15 @@ Examples:
 
 BAD TOPICS (avoid): Vague RBI updates, generic "save money" advice, duplicate of recent topics
 
+⭐ REAL STORY FORMAT (highest engagement):
+  "என் நண்பன் ₹3 லட்சம் இழந்தான் — இந்த ஒரு தவறால்" — then explain what mistake
+  "கோவையில் ஒரு அம்மா insurance claim reject ஆனது — reason கேட்டால் கோபம் வரும்"
+  These get 3x shares because people forward to protect their family
+
+⭐ FACT-CHECK FORMAT (viral):
+  "WhatsApp-ல் '2026 income tax new rules' message பார்த்தீங்களா? உண்மை இதுதான்"
+  Fact-checking viral misinformation = most shareable Tamil finance content
+
 ⭐ VIRAL FORMAT: Topics that start with "WhatsApp-ல் இந்த message பார்த்தீங்களா?" or fact-check viral misinformation get 3x shares. Consider this angle.
 
 Return ONLY valid JSON:
@@ -309,6 +324,7 @@ Return ONLY valid JSON:
   "category_number": <1-8>,
   "hook_angle": "<the most shocking or useful single fact about this topic>",
   "news": "<relevant current event if any, or 'evergreen'>",
+  "thumbnail_hook": "<3-5 Tamil words for thumbnail — shocking or specific number>",
   "reason": "<why this is NOT similar to recent topics>"
 }}
 """
