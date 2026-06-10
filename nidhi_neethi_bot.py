@@ -23,16 +23,22 @@ BEAT 1 — HOOK (15 seconds) — யாரும் scroll stop பண்ண வ
   OPEN WITH: shocking number OR friend's story OR question that stings
 
 BEAT 2 — THE REAL INFORMATION (60 seconds):
-  Specific numbers: "₹100 per day penalty", "750+ score needed", "30 நாள் deadline"
-  Step-by-step: "முதலில்... பிறகு... இறுதியாக..."
-  India-specific context: RBI rules, Indian bank names, actual government schemes
-  One comparison that surprises: "FD vs SIP — 10 வருஷத்தில் ₹3 லட்சம் வித்தியாசம்"
-  End Beat 2 with: "ஆனால் இதை யாரும் சொல்லமாட்டார்கள்..."
+  MANDATORY: At least TWO specific numbers (₹ amounts, %, days, years)
+  Examples: "SBI-ல் minimum balance ₹3,000. HDFC-ல் ₹10,000. இந்த வித்தியாசம் தெரியுமா?"
+  Step-by-step: "முதலில்... பிறகு... இறுதியாக..." (max 3 steps, each under 10 seconds)
+  India/Tamil Nadu specific: RBI portal links, TNEB, TANGEDCO, actual bank names
+  One surprising comparison: exact ₹ difference over exact years
+  STORY MOMENT: "என் நண்பர் [பெயர்], [ஊர்]-ல் இருக்கிறார்..." — 2 sentences max
+  End Beat 2 with: "ஆனால் இதை bank-ல் யாரும் சொல்ல மாட்டார்கள்..."
 
 BEAT 3 — ACTION STEP (25 seconds):
-  Exactly ONE thing viewer can do TODAY
-  Specific: "இப்போதே CIBIL app download பண்ணுங்கள் — free check available"
-  NOT generic: "சேமியுங்கள்" or "invest பண்ணுங்கள்"
+  ONE specific action with EXACT STEPS:
+  "இப்போதே → Settings → Bank app → Auto-pay disable → ₹500 save பண்ணலாம்"
+  Include: WHERE (which app/website), WHAT exactly, HOW LONG it takes
+  "CIBIL.com → Free annual report → Section 3 பாருங்கள் → 2 minutes போதும்"
+  "RBI Complaint Portal (cms.rbi.org.in) → 3 steps → 30 நாளில் response கட்டாயம்"
+  NOT: "உங்கள் bank-ல் கேளுங்கள்" — too vague
+  YES: "HDFC app → More → Charges → Annual fee waiver → Apply" — specific
 
 BEAT 4 — CLOSE (10 seconds):
   Two options — pick the stronger one for this topic:
@@ -304,7 +310,19 @@ Examples:
 - "நீங்கள் pay பண்றீங்களா இந்த 7 hidden bank charges?" (Banking trap)
 - "Salary-ல் 10% மட்டும் save பண்ணினால் 60-ல் ₹1 Crore — எப்படி?" (Daily money)
 
-BAD TOPICS (avoid): Vague RBI updates, generic "save money" advice, duplicate of recent topics
+BAD TOPICS (avoid):
+- Vague RBI updates without specific action
+- Generic "save money" advice — be specific (₹500/month in which account)
+- ANY topic similar to last 3 — check recent_topics carefully
+- Topics ending in "ரகசியங்கள்!", "தவறுகள்!", "வழிகள்!" — overused
+- CIBIL topic if CIBIL appeared in last 5 topics
+- Same category as yesterday
+
+ANTI-REPETITION CHECK: scan recent_topics for these keywords:
+  CIBIL → don't use again for 5 days
+  insurance → don't repeat same insurance angle
+  hidden charges → rotate to different category
+  SIP/FD → don't compare same pair twice
 
 ⭐ REAL STORY FORMAT (highest engagement):
   "என் நண்பன் ₹3 லட்சம் இழந்தான் — இந்த ஒரு தவறால்" — then explain what mistake
@@ -314,6 +332,12 @@ BAD TOPICS (avoid): Vague RBI updates, generic "save money" advice, duplicate of
 ⭐ FACT-CHECK FORMAT (viral):
   "WhatsApp-ல் '2026 income tax new rules' message பார்த்தீங்களா? உண்மை இதுதான்"
   Fact-checking viral misinformation = most shareable Tamil finance content
+
+⭐ TAMIL NADU SPECIFIC (highest relevance):
+  "Coimbatore-ல் ஒரு chit fund scam — இப்படித்தான் மக்கள் ஏமாந்தார்கள்"
+  "Chennai TNEB bill-ல் இந்த charge தெரியுமா? Most people pay unnecessarily"
+  "Aavin vs private milk: nutritional and financial comparison for Tamil families"
+  Regional specificity = more shares because it feels personally relevant
 
 ⭐ VIRAL FORMAT: Topics that start with "WhatsApp-ல் இந்த message பார்த்தீங்களா?" or fact-check viral misinformation get 3x shares. Consider this angle.
 
