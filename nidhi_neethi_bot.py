@@ -2715,41 +2715,67 @@ NN_THUMB_FORMATS = {
 }
 
 def generate_thumbnail(title, format_type, output_name):
-    """Premium finance thumbnail — Tamil + English smart font selection."""
+    """Dynamic thumbnail — big number focal point, 4 accent patterns."""
     try:
         from PIL import Image, ImageDraw, ImageFont
+        import math, random, hashlib, re as _re
         os.makedirs(THUMBNAIL_DIR, exist_ok=True)
 
         W, H = 1280, 720
-        cfg = NN_THUMB_FORMATS.get(format_type, NN_THUMB_FORMATS["default"])
-        img = Image.new("RGB",(W,H),cfg["c1"])
+
+        NN_PALETTE = {
+            "warning":    ((32,3,3),    (55,6,6),   (225,35,35)),
+            "explainer":  ((3,15,32),   (6,25,55),  (50,142,255)),
+            "rights":     ((2,22,6),    (4,40,10),  (0,190,75)),
+            "comparison": ((22,15,3),   (40,28,6),  (255,160,0)),
+            "story":      ((20,3,26),   (35,5,45),  (175,75,255)),
+            "news":       ((25,10,3),   (45,18,6),  (255,115,0)),
+            "default":    ((10,8,5),    (20,15,8),  (215,162,0)),
+        }
+
+        c1, c2, acc  = NN_PALETTE.get(format_type, NN_PALETTE["default"])
+        topic_seed   = int(hashlib.md5(title.encode()).hexdigest()[:8], 16)
+        random.seed(topic_seed)
+
+        # Auto-extract hook number from title
+        hook_number = None
+        m = _re.search(r'₹[\d,]+\s*(?:லட்சம்|ஆயிரம்|கோடி)?', title)
+        if m:
+            hook_number = m.group(0)
+        else:
+            m2 = _re.search(r'\d[\d,]+\s*%?', title)
+            if m2 and len(m2.group(0)) <= 8:
+                hook_number = m2.group(0)
+
+        img = Image.new("RGB",(W,H),c1)
         d   = ImageDraw.Draw(img)
 
-        def is_tamil(text):
-            return any("\u0B80" <= c <= "\u0BFF" for c in text)
+        # Background gradient
+        for y in range(H):
+            t   = y/H
+            col = tuple(int(c1[j]+(c2[j]-c1[j])*t) for j in range(3))
+            d.line([(0,y),(W,y)], fill=col)
 
-        def load_font(text, size, bold=True):
+        def lf(size, tamil=False):
             try:
-                if is_tamil(text):
-                    return ImageFont.truetype(TAMIL_BOLD_FONT, size)
-                return ImageFont.truetype(ENG_BOLD_FONT, size)
-            except: return ImageFont.load_default()
+                p = TAMIL_BOLD_FONT if tamil else ENG_BOLD_FONT
+                return ImageFont.truetype(p, size)
+            except:
+                return ImageFont.load_default()
 
-        def bg_grad():
-            for y in range(H):
-                t=y/H
-                col=tuple(int(cfg["c1"][j]+(cfg["c2"][j]-cfg["c1"][j])*t) for j in range(3))
-                d.line([(0,y),(W,y)],fill=col)
+        def sh(x, y, text, font, fill, shadow=(0,0,0)):
+            for ox,oy in [(4,4),(-2,-2),(3,-2),(-2,3)]:
+                d.text((x+ox,y+oy), text, font=font, fill=shadow)
+            d.text((x,y), text, font=font, fill=fill)
 
-        def shadow_text(x,y,text,size,fill):
-            font=load_font(text,size)
-            for ox,oy in [(3,3),(-2,-2),(2,-2),(-2,2)]:
-                d.text((x+ox,y+oy),text,font=font,fill=(0,0,0))
-            d.text((x,y),text,font=font,fill=fill)
+        def is_tamil(t):
+            return any("\u0B80"<=c<="\u0BFF" for c in t)
+
+        def af(text, size):
+            return lf(size, tamil=is_tamil(text))
 
         def wrap(text, n=15):
-            words=text.split()
-            lines,line=[],""
+            words=text.split(); lines,line=[],""
             for w in words:
                 if len(line+w)<=n: line+=w+" "
                 else:
@@ -2758,73 +2784,99 @@ def generate_thumbnail(title, format_type, output_name):
             if line: lines.append(line.strip())
             return lines[:3]
 
-        bg_grad()
+        # ── 4 dynamic accent patterns ──────────────────────────────
+        style = topic_seed % 4
+        title_y_start = 100
 
-        px=int(W*0.66)
-        for x in range(px,W):
-            t=(x-px)/(W-px)
-            col=tuple(max(0,int(c*(1-t*0.45))) for c in cfg["c2"])
-            d.line([(x,0),(x,H)],fill=col)
-        d.polygon([(px-32,0),(px+32,0),(px-32,H),(px-85,H)],fill=cfg["c2"])
+        if style == 0:
+            # Dark right panel — contrast zone for number
+            for x in range(W*3//5, W):
+                t = (x-W*3//5)/(W*2//5)
+                col = tuple(max(0, int(c*(1-t*0.6))) for c in c2)
+                d.line([(x,0),(x,H)], fill=col)
 
-        icon_map={"warning":"₹?","explainer":"₹","rights":"⚖","comparison":"VS","story":"★","news":"📢","default":"₹"}
-        icon=icon_map.get(format_type,"₹")
-        ifont=load_font(icon,72)
-        d.text((px+(W-px)//2-38,H//2-42),icon,font=ifont,
-               fill=tuple(min(255,c+32) for c in cfg["c2"]))
+        elif style == 1:
+            # Dark top banner
+            for y in range(90):
+                t2 = y/90
+                d.line([(0,y),(W,y)], fill=tuple(max(0,int(c*(1-t2))) for c in c1))
+            d.rectangle([0,82,W,92], fill=acc)
+            title_y_start = 116
 
-        d.rectangle([0,0,W,10],fill=cfg["acc"])
-        d.rectangle([0,H-10,W,H],fill=cfg["acc"])
+        elif style == 2:
+            # Diagonal slash left
+            d.polygon([(0,0),(W*2//5,0),(W//4,H),(0,H)],
+                      fill=tuple(min(255,c+12) for c in c1))
+            d.polygon([(W*2//5,0),(W*2//5+10,0),(W//4+10,H),(W//4,H)],
+                      fill=acc)
 
-        btext=cfg["badge"]
-        bw=len(btext)*15+42
-        bfont=load_font(btext,23)
-        d.rounded_rectangle([W-bw-18,16,W-18,62],radius=7,fill=cfg["bb"])
-        d.text((W-bw//2-18,39),btext,font=bfont,fill=(255,255,255),anchor="mm")
+        else:
+            # Horizontal speed lines right edge
+            for y_pos in range(0, H, 18):
+                ln_len = random.randint(W//5, W//2)
+                d.line([(W-ln_len, y_pos),(W, y_pos)],
+                       fill=(*acc, 8+random.randint(0,8)), width=1)
 
-        cnfont=load_font("நிதி நீதி தமிழ்",24)
-        d.text((22,18),"நிதி நீதி தமிழ்",font=cnfont,fill=(200,200,200))
+        # ── TEXT ──────────────────────────────────────────────────
+        # 1. Format badge
+        badge_map = {
+            "warning":   "⚠ எச்சரிக்கை",
+            "explainer": "💡 விளக்கம்",
+            "rights":    "⚖ உரிமை",
+            "comparison":"🔄 ஒப்பீடு",
+            "story":     "📖 உண்மை கதை",
+            "news":      "📢 செய்தி",
+        }
+        badge = badge_map.get(format_type, "💰 நிதி")
 
-        lines=wrap(title,14)
-        ty=100
-        for i,line in enumerate(lines):
-            col=(255,255,255) if i==0 else (222,218,240)
-            shadow_text(22,ty,line,68 if i==0 else 48,col)
-            ty+=(80 if i==0 else 58)
+        if style == 1:
+            sh(W//2, 46, badge, af(badge, 32), acc, shadow=(0,0,0))
+            try:
+                d.text((W//2, 46), badge, font=af(badge,32),
+                       fill=acc, anchor="mm")
+            except: pass
+        else:
+            badge_w = len(badge)*18+20
+            d.rounded_rectangle([28,28,28+badge_w,74], radius=10, fill=acc)
+            txt_col = (0,0,0) if sum(acc)>500 else (255,255,255)
+            d.text((28+badge_w//2, 51), badge, font=af(badge,26),
+                   fill=txt_col, anchor="mm")
 
-        d.rectangle([22,ty+5,min(22+380,px-15),ty+11],fill=cfg["acc"])
+        # 2. Big number — right side focal point
+        if hook_number:
+            nfs  = max(80, min(130, 390//max(len(hook_number),1)))
+            nfnt = lf(nfs)
+            sh(W-260, H//2-45, hook_number, nfnt, acc, shadow=(0,0,0))
 
-        out=f"{THUMBNAIL_DIR}/{output_name}_thumb.png"
+        # 3. Title — left side large
+        lines = wrap(title, 15)
+        right_margin = W-300 if hook_number else W-40
+        ty = title_y_start
+        for i, ln in enumerate(lines):
+            fs  = 76 if i==0 else 56
+            col = (255,255,255) if i==0 else (228,218,200)
+            sh(28, ty, ln, af(ln, fs), col)
+            ty += fs + 10
+
+        # Accent underline
+        d.rectangle([28, ty+6, min(28+380, right_margin), ty+12], fill=acc)
+
+        # Channel name
+        try:
+            d.text((32, H-38), "நிதி நீதி தமிழ்",
+                   font=lf(22, tamil=True), fill=(*acc, 155))
+        except: pass
+
+        out = f"{THUMBNAIL_DIR}/{output_name}_thumb.png"
         img.save(out)
         log(f"  ✅ Thumbnail: {out}")
         return out
+
     except Exception as e:
         log(f"  ⚠️ Thumbnail failed: {e}")
+        import traceback; log(traceback.format_exc()[:200])
         return None
 
-
-# ═══════════════════════════════════════════════════════════════════
-# RESILIENT LLM ROUTER — 5-provider waterfall
-# Priority: Groq (fast) → Gemini (reliable) → GitHub Models (free)
-#           → Cerebras (fast free) → Groq fallback models
-#
-# All providers use OpenAI-compatible SDK for consistency.
-# GitHub Models: uses GITHUB_TOKEN (auto-set in Actions — zero config)
-# Cerebras: uses CEREBRAS_API_KEY secret (optional, add if available)
-# ═══════════════════════════════════════════════════════════════════
-
-GITHUB_TOKEN    = os.environ.get("GITHUB_TOKEN", "")
-CEREBRAS_KEY    = os.environ.get("CEREBRAS_API_KEY", "")
-
-# ── Provider configs ────────────────────────────────────────────────
-PROVIDERS = [
-    # name, base_url, api_key, model, use_for
-    ("groq",     "https://api.groq.com/openai/v1",         GROQ_API_KEY,  "llama-3.3-70b-versatile",        "script"),
-    ("gemini",   None,                                       GEMINI_KEY,    "gemini-2.5-flash",               "all"),
-    ("github",   "https://models.inference.ai.azure.com",  GITHUB_TOKEN,  "gpt-4o-mini",                    "all"),
-    ("cerebras", "https://api.cerebras.ai/v1",              CEREBRAS_KEY,  "llama-3.3-70b",                  "all"),
-    ("groq_fb",  "https://api.groq.com/openai/v1",         GROQ_API_KEY,  "llama3-8b-8192",                 "fallback"),
-]
 
 def _call_provider(name, base_url, api_key, model, prompt, max_tokens=4000):
     """Call a single provider. Returns text or raises."""
