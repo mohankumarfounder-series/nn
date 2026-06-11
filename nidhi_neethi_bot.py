@@ -2912,6 +2912,21 @@ def _is_retryable(err_str):
     ])
 
 
+
+GITHUB_TOKEN    = os.environ.get("GITHUB_TOKEN", "")
+CEREBRAS_KEY    = os.environ.get("CEREBRAS_API_KEY", "")
+
+# ── Provider configs ────────────────────────────────────────────────
+PROVIDERS = [
+    # name, base_url, api_key, model, use_for
+    ("groq",     "https://api.groq.com/openai/v1",         GROQ_API_KEY,  "llama-3.3-70b-versatile",        "script"),
+    ("gemini",   None,                                       GEMINI_KEY,    "gemini-2.5-flash",               "all"),
+    ("github",   "https://models.inference.ai.azure.com",  GITHUB_TOKEN,  "gpt-4o-mini",                    "all"),
+    ("cerebras", "https://api.cerebras.ai/v1",              CEREBRAS_KEY,  "llama-3.3-70b",                  "all"),
+    ("groq_fb",  "https://api.groq.com/openai/v1",         GROQ_API_KEY,  "llama3-8b-8192",                 "fallback"),
+]
+
+
 def call_llm(prompt, max_retries=3, prefer="gemini", max_tokens=4000):
     """
     Resilient multi-provider router.
