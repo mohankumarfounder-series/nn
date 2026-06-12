@@ -778,7 +778,7 @@ def fetch_pollinations_image_nn(format_type, topic, output_path):
     url = (f"https://image.pollinations.ai/prompt/{urllib.parse.quote(base_prompt)}"
            f"?width=1920&height=1080&nologo=true&enhance=true&seed={random.randint(1,99999)}")
     try:
-        r = requests.get(url, timeout=90, stream=True)
+        r = requests.get(url, timeout=20, stream=True)
         if r.status_code == 200:
             with open(output_path, "wb") as f:
                 for chunk in r.iter_content(8192): f.write(chunk)
@@ -3741,39 +3741,44 @@ def process_video(topic=None, format_type=None, upload=False, privacy="public"):
     img_dir   = os.path.join(PEXELS_DIR, safe_name)
     os.makedirs(img_dir, exist_ok=True)
 
-    # Layer 1: Wikimedia — real institution photos (RBI, courts etc)
-    log("🌐 Fetching Wikimedia images...")
-    wiki_imgs = fetch_wikimedia_images_nn(fmt, img_dir, count=3)
-    if wiki_imgs:
-        log(f"  ✅ Wikimedia: {len(wiki_imgs)} images")
-
-    # Layer 2: Pollinations AI — unique generated image per video
-    log("🎨 Generating AI scene image...")
-    poll_path = os.path.join(img_dir, "ai_scene.jpg")
-    poll_img  = fetch_pollinations_image_nn(fmt, topic_val, poll_path)
-    if poll_img:
-        log(f"  🎨 AI image generated")
-
-    # Layer 3: Animated PIL scenes (zero network)
+    # Layer 1 (GUARANTEED): Animated PIL scenes — zero network, always works
     log("🎨 Generating video scenes...")
     images = generate_video_scenes(safe_name, topic=topic_val,
                                    scene_type=fmt, num_scenes=6, channel="nn")
+    log(f"  ✅ Scenes: {len(images)} generated")
 
-    # Layer 4: Pexels as final bonus
-    log("📸 Fetching Pexels bonus images...")
-    pexels_imgs = fetch_pexels_images(pexels_kw, img_dir, count=2)
+    # Layer 2: Pexels (fast, reliable)
+    log("📸 Fetching Pexels images...")
+    pexels_imgs = fetch_pexels_images(pexels_kw, img_dir, count=3)
+    if pexels_imgs:
+        images = pexels_imgs + images
 
-    # Merge in quality order
-    real_imgs = []
-    if poll_img: real_imgs.append(poll_img)
-    real_imgs.extend(wiki_imgs or [])
-    real_imgs.extend(pexels_imgs or [])
-    if real_imgs:
-        images = real_imgs + images
     if not images:
         ensure_fallback_image()
         images = ["image.png"] if os.path.exists("image.png") else []
 
+    # Layer 3: Wikimedia (bonus — non-blocking)
+    wiki_imgs = []
+    try:
+        wiki_imgs = fetch_wikimedia_images_nn(fmt, img_dir, count=3)
+        if wiki_imgs:
+            images = wiki_imgs + images
+            log(f"  ✅ Wikimedia: {len(wiki_imgs)} images")
+    except Exception as e:
+        log(f"  ⚠️ Wikimedia skipped: {e}")
+
+    # Layer 4: Pollinations AI (bonus — non-blocking)
+    poll_img = None
+    try:
+        poll_path = os.path.join(img_dir, "ai_scene.jpg")
+        poll_img  = fetch_pollinations_image_nn(fmt, topic_val, poll_path)
+        if poll_img:
+            images = [poll_img] + images
+            log(f"  🎨 AI image generated")
+    except Exception as e:
+        log(f"  ⚠️ Pollinations skipped: {e}")
+
+    log(f"  📦 Total images: {len(images)}")
     # Best bg for thumbnail
     thumb_bg = poll_img or (wiki_imgs[0] if wiki_imgs else None)
 
