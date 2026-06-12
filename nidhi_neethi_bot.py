@@ -2895,10 +2895,10 @@ NN_THUMB_FORMATS = {
     "default":    {"c1":(5,18,48),  "c2":(0,5,22),  "acc":(255,192,45), "bb":(172,132,0), "badge":"FINANCE"},
 }
 
-def generate_thumbnail(title, format_type, output_name):
+def generate_thumbnail(title, format_type, output_name, bg_image_path=None):
     """Dynamic thumbnail — big number focal point, 4 accent patterns."""
     try:
-        from PIL import Image, ImageDraw, ImageFont
+        from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
         import math, random, hashlib, re as _re
         os.makedirs(THUMBNAIL_DIR, exist_ok=True)
 
@@ -2928,7 +2928,18 @@ def generate_thumbnail(title, format_type, output_name):
             if m2 and len(m2.group(0)) <= 8:
                 hook_number = m2.group(0)
 
-        img = Image.new("RGB",(W,H),c1)
+        # Photo background if available
+        if bg_image_path and os.path.exists(str(bg_image_path)):
+            try:
+                bg  = Image.open(bg_image_path).convert("RGB").resize((W,H),Image.LANCZOS)
+                bg  = bg.filter(ImageFilter.GaussianBlur(radius=12))
+                bg  = ImageEnhance.Brightness(bg).enhance(0.22)
+                tint= Image.new("RGB",(W,H),c1)
+                img = Image.blend(bg, tint, alpha=0.45)
+            except Exception:
+                img = Image.new("RGB",(W,H),c1)
+        else:
+            img = Image.new("RGB",(W,H),c1)
         d   = ImageDraw.Draw(img)
 
         # Background gradient
@@ -3725,20 +3736,46 @@ def process_video(topic=None, format_type=None, upload=False, privacy="public"):
     # Persist topic so future runs avoid repeating it
     save_used_topic(topic_val)
 
-    # Step 2: Fetch images
+    # Step 2: Fetch images — Wikimedia + Pollinations AI + Pexels + Scenes
     safe_name = hashlib.md5(topic_val.encode()).hexdigest()[:10]
     img_dir   = os.path.join(PEXELS_DIR, safe_name)
-    # Scenes always work — Pexels as bonus
+    os.makedirs(img_dir, exist_ok=True)
+
+    # Layer 1: Wikimedia — real institution photos (RBI, courts etc)
+    log("🌐 Fetching Wikimedia images...")
+    wiki_imgs = fetch_wikimedia_images_nn(fmt, img_dir, count=3)
+    if wiki_imgs:
+        log(f"  ✅ Wikimedia: {len(wiki_imgs)} images")
+
+    # Layer 2: Pollinations AI — unique generated image per video
+    log("🎨 Generating AI scene image...")
+    poll_path = os.path.join(img_dir, "ai_scene.jpg")
+    poll_img  = fetch_pollinations_image_nn(fmt, topic_val, poll_path)
+    if poll_img:
+        log(f"  🎨 AI image generated")
+
+    # Layer 3: Animated PIL scenes (zero network)
     log("🎨 Generating video scenes...")
     images = generate_video_scenes(safe_name, topic=topic_val,
                                    scene_type=fmt, num_scenes=6, channel="nn")
+
+    # Layer 4: Pexels as final bonus
     log("📸 Fetching Pexels bonus images...")
-    pexels_imgs = fetch_pexels_images(pexels_kw, img_dir, count=3)
-    if pexels_imgs:
-        images = pexels_imgs + images  # real photos first
+    pexels_imgs = fetch_pexels_images(pexels_kw, img_dir, count=2)
+
+    # Merge in quality order
+    real_imgs = []
+    if poll_img: real_imgs.append(poll_img)
+    real_imgs.extend(wiki_imgs or [])
+    real_imgs.extend(pexels_imgs or [])
+    if real_imgs:
+        images = real_imgs + images
     if not images:
         ensure_fallback_image()
         images = ["image.png"] if os.path.exists("image.png") else []
+
+    # Best bg for thumbnail
+    thumb_bg = poll_img or (wiki_imgs[0] if wiki_imgs else None)
 
     # Step 3: Generate BGM
     bgm_path = ensure_bgm(fmt)
@@ -3788,10 +3825,15 @@ def process_video(topic=None, format_type=None, upload=False, privacy="public"):
     with open(f"{SCRIPTS_DIR}/{safe_name}.txt", "w", encoding="utf-8") as f:
         f.write(f"TOPIC: {topic_val}\nFORMAT: {fmt}\n\n{script}")
 
-    # Generate thumbnail
-    thumb_path = generate_thumbnail(metadata.get("title", topic_val), fmt, safe_name)
+    # Generate thumbnail with photo background
+    thumb_path = generate_thumbnail(
+        metadata.get("title", topic_val), fmt, safe_name,
+        bg_image_path=thumb_bg
+    )
     if thumb_path:
         metadata["thumbnail_path"] = thumb_path
+        log(f"  ✅ Thumbnail generated")
+    metadata["duration_seconds"] = 120   # for end screen timing
 
     meta_data = {
         "topic": topic_val, "format": fmt, "title": metadata.get("title"),
