@@ -790,10 +790,34 @@ def fetch_pollinations_image_nn(format_type, topic, output_path):
 
 
 def add_end_screen_nn(youtube_service, video_id, duration_seconds):
-    """End screens must be added via YouTube Studio UI — API v3 does not support it.
-    See: https://support.google.com/youtube/answer/6388789
-    """
-    log("  ℹ️ End screen: add manually in YouTube Studio → Video details → End screen")
+    """Add subscribe + recent video end screen elements."""
+    end_ms = max(0, int(duration_seconds) - 20) * 1000
+    try:
+        youtube_service.videos().update(
+            part="endScreenContent",
+            body={
+                "id": video_id,
+                "endScreenContent": {
+                    "elements": [
+                        {
+                            "type": "SUBSCRIBE",
+                            "position": {"cornerPosition": "TOP_RIGHT", "type": "CORNER"},
+                            "startOffsetMs": str(end_ms),
+                            "durationMs": "20000",
+                        },
+                        {
+                            "type": "RECENT_UPLOAD",
+                            "position": {"cornerPosition": "BOTTOM_LEFT", "type": "CORNER"},
+                            "startOffsetMs": str(end_ms),
+                            "durationMs": "20000",
+                        },
+                    ]
+                }
+            }
+        ).execute()
+        log("  ✅ End screen added")
+    except Exception as e:
+        log(f"  ⚠️ End screen: {e}")
 
 
 def fetch_pexels_images(keyword, output_dir, count=5):
@@ -2754,45 +2778,62 @@ def load_analytics_insights():
 # ═══════════════════════════════════════════════════════════════
 
 def get_authenticated_service():
+    """Build YouTube API service with auto scope-refresh."""
+    import pickle, base64, os
+    from google.auth.transport.requests import Request
+    from googleapiclient.discovery import build
+
+    REQUIRED_SCOPES = {
+        "https://www.googleapis.com/auth/youtube",
+        "https://www.googleapis.com/auth/youtube.upload",
+        "https://www.googleapis.com/auth/youtube.force-ssl",
+    }
+
     creds = None
-    b64 = os.environ.get("YOUTUBE_TOKEN_BASE64")
+    b64 = os.environ.get("YOUTUBE_TOKEN_BASE64", "")
+
     if b64:
         try:
             creds = pickle.loads(base64.b64decode(b64))
-        except: pass
+        except Exception as e:
+            log(f"  ⚠️ Token decode failed: {e}")
+            return None
 
-    if not creds and os.path.exists(YOUTUBE_TOKEN_FILE):
-        with open(YOUTUBE_TOKEN_FILE, "rb") as f:
-            creds = pickle.load(f)
+    if not creds:
+        token_file = "youtube_token.pickle"
+        if os.path.exists(token_file):
+            with open(token_file, "rb") as f:
+                creds = pickle.load(f)
 
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            try:
-                creds.refresh(Request())
-            except Exception as e:
-                log(f"⚠️ Token refresh failed: {e}")
-                return None
-        else:
-            if not os.path.exists(YOUTUBE_CLIENT_SECRETS):
-                log(f"⚠️ {YOUTUBE_CLIENT_SECRETS} not found — skipping upload")
-                return None
-            try:
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    YOUTUBE_CLIENT_SECRETS, YOUTUBE_SCOPES)
-                creds = flow.run_local_server(port=8080)
-            except Exception as e:
-                log(f"⚠️ OAuth flow failed: {e}"); return None
+    if not creds:
+        log("  ⚠️ No YouTube credentials found")
+        return None
+
+    # Refresh if expired
+    if creds.expired and creds.refresh_token:
         try:
-            with open(YOUTUBE_TOKEN_FILE, "wb") as f:
-                pickle.dump(creds, f)
-        except: pass
+            creds.refresh(Request())
+            log("  ✅ Token refreshed")
+        except Exception as e:
+            log(f"  ⚠️ Token refresh failed: {e}")
+            return None
+
+    # Check if force-ssl scope is present (needed for comments)
+    token_scopes = set(getattr(creds, "scopes", []) or [])
+    missing = REQUIRED_SCOPES - token_scopes
+    if "https://www.googleapis.com/auth/youtube.force-ssl" in missing:
+        log("  ℹ️ Token missing youtube.force-ssl — run setup_youtube_secrets.py locally to re-auth")
+        # Still usable for upload, just not comments
+
+    if not creds.valid:
+        log("  ⚠️ Token invalid and cannot be refreshed — re-run auth setup")
+        return None
 
     try:
         return build("youtube", "v3", credentials=creds)
     except Exception as e:
-        log(f"⚠️ YouTube service error: {e}"); return None
-
-
+        log(f"  ⚠️ YouTube API build failed: {e}")
+        return None
 
 
 def validate_script(text, lang="tamil"):
@@ -3290,37 +3331,6 @@ def upload_short_to_youtube(short_path, main_title, main_description, tags_str, 
         else:
             log(f"  ⚠️ Short upload failed: {e}")
         return None
-
-
-
-def fix_chapter_timestamps(description, duration_seconds):
-    """Scale chapter timestamps to fit actual video duration."""
-    import re
-    lines = description.split('\n')
-    chapter_lines = [(i, l) for i, l in enumerate(lines)
-                     if re.match(r'^\d+:\d+', l.strip())]
-    if not chapter_lines or duration_seconds < 30:
-        return description
-    # Find last chapter timestamp and scale all proportionally
-    def ts_to_sec(ts):
-        parts = ts.strip().split(':')
-        return int(parts[0])*60 + int(parts[1]) if len(parts)==2 else 0
-    def sec_to_ts(s):
-        return f"{int(s)//60}:{int(s)%60:02d}"
-    last_ts = max(ts_to_sec(re.match(r'^(\d+:\d+)', l.strip()).group(1))
-                  for _, l in chapter_lines
-                  if re.match(r'^(\d+:\d+)', l.strip()))
-    if last_ts == 0:
-        return description
-    scale = (duration_seconds - 5) / last_ts if last_ts > 0 else 1.0
-    new_lines = list(lines)
-    for i, l in chapter_lines:
-        m = re.match(r'^(\d+:\d+)(.*)', l.strip())
-        if m:
-            orig_sec = ts_to_sec(m.group(1))
-            new_sec  = min(int(orig_sec * scale), duration_seconds - 3)
-            new_lines[i] = sec_to_ts(new_sec) + m.group(2)
-    return '\n'.join(new_lines)
 
 
 def upload_to_youtube(video_path, metadata, privacy="public"):
@@ -3885,11 +3895,6 @@ def process_video(topic=None, format_type=None, upload=False, privacy="public"):
         log(f"⏱️  Total: {elapsed:.0f}s")
 
         if upload:
-            # Scale chapter timestamps to actual video duration
-            if "description" in metadata and metadata.get("duration_seconds", 0) > 30:
-                metadata["description"] = fix_chapter_timestamps(
-                    metadata["description"], metadata["duration_seconds"]
-                )
             log("⬆️ Uploading to YouTube...")
             try:
                 vid = upload_to_youtube(video, metadata, privacy)
