@@ -57,6 +57,18 @@ HARD RULES:
 4. ONE real number or statistic (not invented)
 5. WhatsApp-ல் share பண்ண தோன்றும் level of usefulness
 6. NO [BEAT] labels in output — just flowing speech
+
+PAUSE MARKERS — mandatory for human-sounding narration:
+- After HOOK reveal:             [PAUSE_LONG]
+- After key ₹ number/stat:       [PAUSE_SHORT]
+- Before viewer question:        [PAUSE_MED]
+- Between beats/sections:        [PAUSE_LONG]
+- After "ஆனால் யாரும் சொல்ல மாட்டார்கள்": [PAUSE_MED]
+
+Example:
+"உங்கள் SBI account-ல் மாதம் ₹177 silently போகுது. [PAUSE_LONG]
+நீங்கள் notice பண்றீங்களா? [PAUSE_MED]
+இதை 2 நிமிடத்தில் நிறுத்தலாம். [PAUSE_SHORT]"
 """
 #!/usr/bin/env python3
 """
@@ -176,20 +188,27 @@ VOICE_MALE   = "ta-IN-ValluvarNeural"  # authoritative male
 # Voice EQ profiles
 # Light, natural EQ — minimal processing = less robotic
 EQ_FEMALE_FINANCE = (
-    "highpass=f=80,"
-    "equalizer=f=300:t=q:w=0.7:g=1.5,"
-    "equalizer=f=3000:t=q:w=0.8:g=1,"
-    "acompressor=threshold=-18dB:ratio=2:attack=8:release=80:makeup=1,"
-    "loudnorm=I=-14:TP=-1.5:LRA=11"
+    "highpass=f=90,"
+    "equalizer=f=250:t=q:w=0.8:g=2,"    # warmth
+    "equalizer=f=800:t=q:w=0.9:g=2,"    # presence
+    "equalizer=f=2500:t=q:w=1:g=1.5,"   # clarity
+    "equalizer=f=5000:t=q:w=1:g=-2,"    # reduce sibilance
+    "equalizer=f=8000:t=q:w=1:g=-3,"    # cut harshness
+    "vibrato=f=4.2:d=0.022,"             # subtle natural wobble
+    "acompressor=threshold=-18dB:ratio=2:attack=8:release=80:makeup=2,"
+    "loudnorm=I=-14:TP=-1.5:LRA=9"
 )
 
 # Light natural EQ for male — warm, authoritative, not processed
 EQ_MALE_FINANCE = (
-    "highpass=f=60,"
-    "equalizer=f=200:t=q:w=0.7:g=2,"
-    "equalizer=f=2500:t=q:w=0.8:g=1.5,"
-    "acompressor=threshold=-20dB:ratio=1.8:attack=8:release=80:makeup=2,"
-    "loudnorm=I=-14:TP=-1.5:LRA=10"
+    "highpass=f=70,"
+    "equalizer=f=150:t=q:w=0.7:g=2,"    # chest resonance
+    "equalizer=f=500:t=q:w=0.8:g=1.5,"
+    "equalizer=f=2000:t=q:w=1:g=2,"     # intelligibility
+    "equalizer=f=6000:t=q:w=1:g=-2,"
+    "vibrato=f=3.5:d=0.018,"             # very subtle on male
+    "acompressor=threshold=-16dB:ratio=2:attack=6:release=60:makeup=2.5,"
+    "loudnorm=I=-14:TP=-1.5:LRA=9"
 )
 
 # Content type → voice assignment
@@ -203,6 +222,16 @@ VOICE_ASSIGNMENT = {
     "default":    ("female", VOICE_FEMALE, EQ_FEMALE_FINANCE),
 }
 
+
+RATE_BY_FORMAT_NN = {
+    "warning":    "-8%",    # urgent alert — crisp delivery
+    "news":       "-7%",    # fast, breaking news energy
+    "explainer":  "-11%",   # clear for complex financial info
+    "rights":     "-10%",   # authoritative, measured
+    "comparison": "-10%",   # analytical and clear
+    "story":      "-12%",   # storytelling pace
+    "default":    "-10%",   # general purpose
+}
 # ═══════════════════════════════════════════════════════════════
 # BGM PROFILES — professional finance/legal tones
 # ═══════════════════════════════════════════════════════════════
@@ -442,8 +471,25 @@ DESCRIPTION LINE 2 (= reinforces click decision):
 CHAPTER TIMESTAMPS (YouTube shows these as "Key moments" in search):
 Must match actual script beats. Use real times not placeholders.
 
-TAGS: Mix Tamil search terms + English equivalents
-Example: "CIBIL score" + "credit score tamil" + "how to improve cibil score in tamil"
+TAGS (30 total — monetisation priority):
+Tier 1 (5 high-volume): "tamil finance", "personal finance tamil", "tamil money tips", "tamil investment", "tamil legal rights"
+Tier 2 (10 topic-specific Tamil): exact search terms Tamil users type
+Tier 3 (10 long-tail): "how to [action] in tamil", "[topic] explained tamil 2026", "[topic] tamil step by step"
+Tier 4 (5 diaspora): "tamil finance uk", "nri finance tamil", "tamil finance usa", "tamil finance singapore", "finance tips tamilnadu"
+
+ENGAGEMENT HOOKS (add in script naturally):
+- At 30s: "இப்போது உங்கள் phone எடுங்கள் — 2 நிமிடத்தில் ₹500 save பண்ணலாம்."
+- At 60% video: "இது useful-ஆ இருந்தால் — subscribe பண்ணுங்கள். தினமும் இதுமாதிரி content வருது."
+- End: 2-choice question — "FD நல்லதா, SIP நல்லதா — உங்கள் pick comment பண்ணுங்கள் 👇"
+- Share: "உங்கள் நண்பர்களுக்கு forward பண்ணுங்கள் — அவர்களுக்கும் உதவும்."
+
+DESCRIPTION must include:
+🔗 USEFUL LINKS:
+• RBI Complaint: cms.rbi.org.in
+• CIBIL Free Report: cibil.com
+• Consumer Helpline: 1800-11-4000
+• EPFO Portal: epfindia.gov.in
+⚠️ DISCLAIMER: Educational content only. Not financial/legal advice.
 """
 
 RESPONDED_COMMENTS_FILE = "responded_comments.json"
@@ -662,6 +708,117 @@ def fetch_trends():
 # ═══════════════════════════════════════════════════════════════
 # PEXELS IMAGE FETCHING
 # ═══════════════════════════════════════════════════════════════
+
+# ═══════════════════════════════════════════════════════════════
+# FREE MEDIA: Wikimedia Commons + Pollinations AI (NN)
+# ═══════════════════════════════════════════════════════════════
+
+NN_WIKIMEDIA_QUERIES = {
+    "warning":    ["Reserve Bank India", "cybercrime awareness India police"],
+    "rights":     ["Supreme Court India building", "consumer court India"],
+    "investment": ["Mumbai stock exchange BSE", "Indian rupee notes currency"],
+    "loan":       ["Reserve Bank India headquarters", "Indian bank branch documents"],
+    "comparison": ["Indian banking choices", "Indian financial planning"],
+    "story":      ["Indian family savings home", "middle class India finance"],
+    "news":       ["Finance Ministry India", "RBI headquarters Mumbai"],
+    "explainer":  ["Indian professional finance", "calculator money India"],
+    "default":    ["Indian rupee notes", "Reserve Bank India"],
+}
+
+NN_POLLINATIONS_PROMPTS = {
+    "warning":    "Indian person shocked looking at phone banking fraud alert, editorial illustration professional Indian aesthetic, no text",
+    "rights":     "Indian family celebrating winning consumer court case, justice scales, empowering editorial illustration India, no text",
+    "investment": "Indian middle class family celebrating financial milestone savings goal, warm editorial illustration, no text",
+    "explainer":  "Indian professional explaining finance whiteboard, friendly educational illustration Chennai, no text",
+    "story":      "Indian family budget planning kitchen table, warm realistic photography India, no text",
+    "news":       "Reserve Bank India headquarters Mumbai dramatic architecture, financial news editorial style, no text",
+    "comparison": "Two paths choice decision making India finance, infographic style illustration, no text",
+    "default":    "Indian middle class family financial planning, warm editorial illustration, no text",
+}
+
+def fetch_wikimedia_images_nn(format_type, output_dir, count=4):
+    """Fetch real institution/finance photos from Wikimedia Commons."""
+    import urllib.parse
+    queries = NN_WIKIMEDIA_QUERIES.get(format_type, NN_WIKIMEDIA_QUERIES["default"])
+    images = []
+    os.makedirs(output_dir, exist_ok=True)
+    for query in queries[:2]:
+        try:
+            params = {
+                "action": "query", "generator": "search",
+                "gsrsearch": f"filetype:bitmap {query}",
+                "gsrlimit": str(count * 2), "prop": "imageinfo",
+                "iiprop": "url|size|mime", "iiurlwidth": "1920", "format": "json"
+            }
+            resp = requests.get("https://commons.wikimedia.org/w/api.php",
+                               params=params, timeout=15).json()
+            pages = resp.get("query", {}).get("pages", {})
+            for page in pages.values():
+                ii = page.get("imageinfo", [{}])[0]
+                url = ii.get("thumburl", "") or ii.get("url", "")
+                mime = ii.get("mime", "")
+                if url and "image" in mime and not url.endswith(".svg"):
+                    r = requests.get(url, timeout=30, stream=True)
+                    if r.status_code == 200:
+                        fname = os.path.join(output_dir, f"wiki_{len(images)}.jpg")
+                        with open(fname, "wb") as f:
+                            for chunk in r.iter_content(8192): f.write(chunk)
+                        images.append(fname)
+                        if len(images) >= count:
+                            return images
+        except Exception as e:
+            log(f"  ⚠️ Wikimedia NN: {e}")
+    return images
+
+
+def fetch_pollinations_image_nn(format_type, topic, output_path):
+    """Free AI-generated unique image per video — no API key needed."""
+    import urllib.parse, random
+    base_prompt = NN_POLLINATIONS_PROMPTS.get(format_type, NN_POLLINATIONS_PROMPTS["default"])
+    url = (f"https://image.pollinations.ai/prompt/{urllib.parse.quote(base_prompt)}"
+           f"?width=1920&height=1080&nologo=true&enhance=true&seed={random.randint(1,99999)}")
+    try:
+        r = requests.get(url, timeout=90, stream=True)
+        if r.status_code == 200:
+            with open(output_path, "wb") as f:
+                for chunk in r.iter_content(8192): f.write(chunk)
+            log(f"  🎨 AI image generated: {os.path.basename(output_path)}")
+            return output_path
+    except Exception as e:
+        log(f"  ⚠️ Pollinations NN: {e}")
+    return None
+
+
+def add_end_screen_nn(youtube_service, video_id, duration_seconds):
+    """Add subscribe + recent video end screen elements."""
+    end_ms = max(0, int(duration_seconds) - 20) * 1000
+    try:
+        youtube_service.videos().update(
+            part="endScreenContent",
+            body={
+                "id": video_id,
+                "endScreenContent": {
+                    "elements": [
+                        {
+                            "type": "SUBSCRIBE",
+                            "position": {"cornerPosition": "TOP_RIGHT", "type": "CORNER"},
+                            "startOffsetMs": str(end_ms),
+                            "durationMs": "20000",
+                        },
+                        {
+                            "type": "RECENT_UPLOAD",
+                            "position": {"cornerPosition": "BOTTOM_LEFT", "type": "CORNER"},
+                            "startOffsetMs": str(end_ms),
+                            "durationMs": "20000",
+                        },
+                    ]
+                }
+            }
+        ).execute()
+        log("  ✅ End screen added")
+    except Exception as e:
+        log(f"  ⚠️ End screen: {e}")
+
 
 def fetch_pexels_images(keyword, output_dir, count=5):
     if not PEXELS_API_KEY:
@@ -1218,6 +1375,15 @@ def build_video_filter(images, total_frames, fps=25, seed=0):
     return num, ";".join(filters), prev
 
 
+
+def inject_pauses(text):
+    """Convert [PAUSE_X] markers to natural ellipsis pauses for edge-tts."""
+    text = text.replace("[PAUSE_LONG]",  "  ...  ")
+    text = text.replace("[PAUSE_MED]",   " ... ")
+    text = text.replace("[PAUSE_SHORT]", " .. ")
+    return text
+
+
 def create_video(script_text, english_subtitles, images_input, output_name,
                  format_type="default", title_short="", bgm_path=None,
                  source_citation="", topic_val=""):
@@ -1234,6 +1400,7 @@ def create_video(script_text, english_subtitles, images_input, output_name,
     video_file  = f"{OUTPUT_DIR}/{output_name}_video.mp4"
     short_file  = f"{SHORTS_DIR}/{output_name}_short.mp4"
 
+    script_text = inject_pauses(script_text)  # add natural breath pauses
     with open(script_file, "w", encoding="utf-8") as f:
         f.write(script_text)
 
@@ -1244,7 +1411,7 @@ def create_video(script_text, english_subtitles, images_input, output_name,
     t0 = time.time()
     try:
         r = run(["edge-tts", "--file", script_file, "--voice", voice_id,
-                 "--rate=-18%", "--pitch=+0Hz", "--write-media", voice_file],
+                 "--rate=" + RATE_BY_FORMAT_NN.get(format_type, "-10%"), "--pitch=+0Hz", "--write-media", voice_file],
                 timeout=300)
     except subprocess.TimeoutExpired:
         log("❌ TTS timeout"); return None
@@ -3152,13 +3319,17 @@ def upload_to_youtube(video_path, metadata, privacy="public"):
             "description": metadata.get("description", "")[:5000],
             "tags":        [t.strip() for t in
                            validate_tags(metadata.get("tags","")).split(",")][:30],
-            "categoryId":  "22",
+            "categoryId":  "27",   # Education (better for finance/consumer rights content)
         },
         "status": {
             "privacyStatus":           privacy,
             "selfDeclaredMadeForKids": False,
         },
     }
+
+    # Add language metadata to snippet
+    body["snippet"]["defaultLanguage"] = "ta"
+    body["snippet"]["defaultAudioLanguage"] = "ta"
 
     try:
         t0 = time.time()
@@ -3168,6 +3339,10 @@ def upload_to_youtube(video_path, metadata, privacy="public"):
         resp = req.execute()
         vid = resp["id"]
         log(f"✅ Uploaded: https://youtu.be/{vid} ({time.time()-t0:.0f}s)")
+
+        # Add end screen
+        video_dur = metadata.get("duration_seconds", 120)
+        add_end_screen_nn(youtube, vid, video_dur)
 
         if metadata.get("pinned_comment"):
             try:
