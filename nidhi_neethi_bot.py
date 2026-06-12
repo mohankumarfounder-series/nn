@@ -1087,7 +1087,7 @@ def make_intro_clip(output_path):
     if has_bell:
         cmd.extend(["-i", bell])
 
-    vf = (f"fps=25,scale=1920:1080:force_original_aspect_ratio=decrease,"
+    vf = (f"fps=30,scale=1920:1080:force_original_aspect_ratio=decrease,"
           f"pad=1920:1080:(ow-iw)/2:(oh-ih)/2,"
           f"fade=t=in:st=0:d=0.4,fade=t=out:st={INTRO_DURATION-0.4}:d=0.4")
 
@@ -1122,7 +1122,7 @@ def make_outro_clip(output_path):
         "drawtext=fontfile=/usr/share/fonts/truetype/noto/NotoSansTamil-Regular.ttf:text='Subscribe பண்ணுங்கள் 🔔':fontsize=52:"
         "fontcolor=white@0.95:x=(w-tw)/2:y=h-120:"
         "shadowcolor=black@0.9:shadowx=3:shadowy=3,"
-        "drawtext=fontfile=/usr/share/fonts/truetype/noto/NotoSansTamil-Regular.ttf:text='@NidhiNeethiTamil':fontsize=36:"
+        "drawtext=fontfile=/usr/share/fonts/truetype/noto/NotoSansTamil-Regular.ttf:text='@NidhiNeethiTamil':fontsize=46:"
         "fontcolor=gold@0.9:x=(w-tw)/2:y=h-65:"
         "shadowcolor=black@0.8:shadowx=2:shadowy=2"
     )
@@ -1130,7 +1130,7 @@ def make_outro_clip(output_path):
              "-loop", "1", "-t", str(OUTRO_DURATION + 0.1), "-i", OUTRO_FRAME,
              "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
              "-filter_complex",
-             f"[0:v]fps=25,scale=1920:1080:force_original_aspect_ratio=decrease,"
+             f"[0:v]fps=30,scale=1920:1080:force_original_aspect_ratio=decrease,"
              f"pad=1920:1080:(ow-iw)/2:(oh-ih)/2,"
              f"fade=t=in:st=0:d=0.4,"
              f"fade=t=out:st={OUTRO_DURATION-0.4}:d=0.4,"
@@ -1158,7 +1158,7 @@ def concat_clips(clips, output_path):
     # fps/codec mismatch between intro(PNG-based) and content clips
     r = run(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
              "-i", flist,
-             "-vf", "fps=25,scale=1920:1080:force_original_aspect_ratio=decrease,"
+             "-vf", "fps=30,scale=1920:1080:force_original_aspect_ratio=decrease,"
                     "pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
              "-c:v", "libx264", "-preset", "veryfast", "-crf", "24",
              "-pix_fmt", "yuv420p",
@@ -1436,7 +1436,7 @@ def create_video(script_text, english_subtitles, images_input, output_name,
             "[v][b]amix=inputs=2:duration=first:dropout_transition=2[out]"
         ).format(fo=fo, bfo=bfo)
         run(["ffmpeg", "-y", "-i", human_file, "-i", bgm_path,
-             "-filter_complex", fc, "-map", "[out]", "-ac", "2", mixed_file])
+             "-filter_complex", fc, "-map", "[out]", "-ac", "2", "-c:a", "aac", "-b:a", "192k", mixed_file])
         audio = mixed_file if os.path.exists(mixed_file) else human_file
     else:
         audio = human_file
