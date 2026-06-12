@@ -651,18 +651,28 @@ def save_used_topic(topic):
 # ═══════════════════════════════════════════════════════════════
 
 def parse_json_response(raw):
-    clean = raw.strip()
-    if clean.startswith("```"):
-        parts = clean.split("```")
-        clean = parts[1] if len(parts) > 1 else clean
-        if clean.startswith("json"):
-            clean = clean[4:]
-    return json.loads(clean.strip())
-
-
-# ═══════════════════════════════════════════════════════════════
-# NEWS & TRENDS FETCHING
-# ═══════════════════════════════════════════════════════════════
+    """Robust JSON extraction — handles fences, control chars, truncation."""
+    import re as _re
+    text = raw.strip() if raw else ""
+    for fence in ["```json", "```JSON", "```"]:
+        if text.startswith(fence):
+            text = text[len(fence):]
+            if text.endswith("```"): text = text[:-3]
+            break
+    text = text.strip()
+    text = _re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", text)
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+    match = _re.search(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", text, _re.DOTALL)
+    if match:
+        try: return json.loads(match.group(0))
+        except Exception: pass
+    fixed = _re.sub(r",\s*([}\]])", r"\1", text)
+    try: return json.loads(fixed)
+    except Exception as e:
+        raise ValueError(f"JSON parse failed: {e}\n{text[:200]}")
 
 def fetch_finance_news():
     """Fetch RBI, SEBI, finance news relevant to Tamil audience."""
@@ -980,7 +990,7 @@ def burn_subtitles(video_in, srt_path, video_out):
     r = run([
         "ffmpeg", "-y", "-i", video_in,
         "-vf", f"subtitles={srt_path}:force_style='{subtitle_style}'",
-        "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
         "-c:a", "copy", video_out
     ], timeout=300)
     return r.returncode == 0
@@ -1099,7 +1109,7 @@ def make_intro_clip(output_path):
                     "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
                     "-map", "2:a"])
 
-    cmd.extend(["-c:v", "libx264", "-preset", "medium", "-crf", "23",
+    cmd.extend(["-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
                 "-pix_fmt", "yuv420p",
                 "-c:a", "aac", "-ar", "44100", "-ac", "2",
                 "-t", str(INTRO_DURATION),  # hard cap at exact duration
@@ -1137,7 +1147,7 @@ def make_outro_clip(output_path):
              f"{text_filter}[v];"
              f"[1:a]apad=pad_dur={OUTRO_DURATION}[a]",
              "-map", "[v]", "-map", "[a]",
-             "-c:v", "libx264", "-preset", "medium", "-crf", "23",
+             "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
              "-pix_fmt", "yuv420p",
              "-c:a", "aac", "-ar", "44100", "-ac", "2",
              "-t", str(OUTRO_DURATION), output_path], timeout=30)
@@ -1160,7 +1170,7 @@ def concat_clips(clips, output_path):
              "-i", flist,
              "-vf", "fps=30,scale=1920:1080:force_original_aspect_ratio=decrease,"
                     "pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
-             "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+             "-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
              "-pix_fmt", "yuv420p",
              "-c:a", "aac", "-ar", "44100", "-ac", "2",
              "-movflags", "+faststart",
@@ -1319,7 +1329,7 @@ def overlay_character_on_video(video_in, video_out, format_type, total_dur):
         cmd.extend([
             "-filter_complex", filter_str,
             "-map", "[vout]", "-map", "0:a",
-            "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
             "-c:a", "copy", video_out
         ])
 
@@ -1466,7 +1476,7 @@ def create_video(script_text, english_subtitles, images_input, output_name,
         cmd.extend(["-loop", "1", "-t", str(total_dur + 2), "-i", img])
     cmd.extend(["-i", audio, "-filter_complex", vfilter,
                 "-map", f"[{vlabel}]", "-map", f"{num_inputs}:a",
-                "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
                 "-pix_fmt", "yuv420p", "-c:a", "aac",
                 "-ar", "44100", "-ac", "2",
                 "-avoid_negative_ts", "make_zero", raw_file])
@@ -1504,7 +1514,7 @@ def create_video(script_text, english_subtitles, images_input, output_name,
                             "BackColour=&H80000000,"
                             "Bold=1,Outline=3,Shadow=1,"
                             "Alignment=2,MarginV=60'",
-                     "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+                     "-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
                      "-c:a", "copy", "-movflags", "+faststart", video_file], timeout=200)
             if r.returncode == 0:
                 srt_created = True
@@ -1548,7 +1558,7 @@ def create_video(script_text, english_subtitles, images_input, output_name,
     r_combined = run([
         "ffmpeg", "-y", "-i", video_file,
         "-vf", combined_vf,
-        "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
         "-c:a", "copy",   # audio copy — no drift here
         combined_file
     ], timeout=200)
@@ -1572,7 +1582,7 @@ def create_video(script_text, english_subtitles, images_input, output_name,
                     "-i", video_file, "-i", LOGO_WATERMARK,
                     "-filter_complex",
                     "overlay=W-130:H-130:format=auto",
-                    "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
                     "-c:a", "copy", "-movflags", "+faststart", wm_file], timeout=300)
         if r_wm.returncode == 0:
             shutil.move(wm_file, video_file)
@@ -2163,7 +2173,7 @@ def add_source_overlay(video_in, video_out, source_text, total_dur):
     )
     r = run(["ffmpeg", "-y", "-i", video_in,
              "-vf", vf,
-             "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+             "-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
              "-c:a", "copy", video_out], timeout=200)
     if r.returncode == 0:
         log(f"  ✅ Source citation: {source_text}")
@@ -2206,7 +2216,7 @@ def add_bilingual_hook_overlay(video_in, video_out, topic, format_type):
     )
     r = run(["ffmpeg", "-y", "-i", video_in,
              "-vf", vf,
-             "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+             "-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
              "-c:a", "copy", video_out], timeout=200)
     if r.returncode == 0:
         log(f"  ✅ Bilingual hook: {hook_phrase}")
