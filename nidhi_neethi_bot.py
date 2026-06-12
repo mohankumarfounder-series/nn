@@ -790,34 +790,10 @@ def fetch_pollinations_image_nn(format_type, topic, output_path):
 
 
 def add_end_screen_nn(youtube_service, video_id, duration_seconds):
-    """Add subscribe + recent video end screen elements."""
-    end_ms = max(0, int(duration_seconds) - 20) * 1000
-    try:
-        youtube_service.videos().update(
-            part="endScreenContent",
-            body={
-                "id": video_id,
-                "endScreenContent": {
-                    "elements": [
-                        {
-                            "type": "SUBSCRIBE",
-                            "position": {"cornerPosition": "TOP_RIGHT", "type": "CORNER"},
-                            "startOffsetMs": str(end_ms),
-                            "durationMs": "20000",
-                        },
-                        {
-                            "type": "RECENT_UPLOAD",
-                            "position": {"cornerPosition": "BOTTOM_LEFT", "type": "CORNER"},
-                            "startOffsetMs": str(end_ms),
-                            "durationMs": "20000",
-                        },
-                    ]
-                }
-            }
-        ).execute()
-        log("  ✅ End screen added")
-    except Exception as e:
-        log(f"  ⚠️ End screen: {e}")
+    """End screens must be added via YouTube Studio UI — API v3 does not support it.
+    See: https://support.google.com/youtube/answer/6388789
+    """
+    log("  ℹ️ End screen: add manually in YouTube Studio → Video details → End screen")
 
 
 def fetch_pexels_images(keyword, output_dir, count=5):
@@ -3316,6 +3292,37 @@ def upload_short_to_youtube(short_path, main_title, main_description, tags_str, 
         return None
 
 
+
+def fix_chapter_timestamps(description, duration_seconds):
+    """Scale chapter timestamps to fit actual video duration."""
+    import re
+    lines = description.split('\n')
+    chapter_lines = [(i, l) for i, l in enumerate(lines)
+                     if re.match(r'^\d+:\d+', l.strip())]
+    if not chapter_lines or duration_seconds < 30:
+        return description
+    # Find last chapter timestamp and scale all proportionally
+    def ts_to_sec(ts):
+        parts = ts.strip().split(':')
+        return int(parts[0])*60 + int(parts[1]) if len(parts)==2 else 0
+    def sec_to_ts(s):
+        return f"{int(s)//60}:{int(s)%60:02d}"
+    last_ts = max(ts_to_sec(re.match(r'^(\d+:\d+)', l.strip()).group(1))
+                  for _, l in chapter_lines
+                  if re.match(r'^(\d+:\d+)', l.strip()))
+    if last_ts == 0:
+        return description
+    scale = (duration_seconds - 5) / last_ts if last_ts > 0 else 1.0
+    new_lines = list(lines)
+    for i, l in chapter_lines:
+        m = re.match(r'^(\d+:\d+)(.*)', l.strip())
+        if m:
+            orig_sec = ts_to_sec(m.group(1))
+            new_sec  = min(int(orig_sec * scale), duration_seconds - 3)
+            new_lines[i] = sec_to_ts(new_sec) + m.group(2)
+    return '\n'.join(new_lines)
+
+
 def upload_to_youtube(video_path, metadata, privacy="public"):
     if not os.path.exists(video_path):
         log(f"❌ Video not found: {video_path}"); return None
@@ -3878,6 +3885,11 @@ def process_video(topic=None, format_type=None, upload=False, privacy="public"):
         log(f"⏱️  Total: {elapsed:.0f}s")
 
         if upload:
+            # Scale chapter timestamps to actual video duration
+            if "description" in metadata and metadata.get("duration_seconds", 0) > 30:
+                metadata["description"] = fix_chapter_timestamps(
+                    metadata["description"], metadata["duration_seconds"]
+                )
             log("⬆️ Uploading to YouTube...")
             try:
                 vid = upload_to_youtube(video, metadata, privacy)
