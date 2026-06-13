@@ -571,7 +571,7 @@ def save_queue(q):
 
 USED_TOPICS_FILE = "used_topics.txt"
 
-def load_recent_topics(n=30):
+def load_recent_topics(n=20):
     """
     Load recently used topics from used_topics.txt (committed to git).
     This file persists across GitHub Actions runs — solves stateless CI problem.
@@ -3910,23 +3910,6 @@ def process_video(topic=None, format_type=None, upload=False, privacy="public"):
                 vid = upload_to_youtube(video, metadata, privacy)
                 if vid:
                     log(f"✅ Live: https://youtu.be/{vid}")
-                    # Save to video_series.json for tracking
-                    try:
-                        import datetime as _dt
-                        series = {}
-                        if os.path.exists(SERIES_FILE):
-                            with open(SERIES_FILE, encoding="utf-8") as _f:
-                                series = json.load(_f)
-                        series.setdefault(fmt, []).append({
-                            "topic":    topic_val,
-                            "video_id": vid,
-                            "date":     _dt.datetime.now().isoformat()
-                        })
-                        with open(SERIES_FILE, "w", encoding="utf-8") as _f:
-                            json.dump(series, _f, ensure_ascii=False, indent=2)
-                        log(f"  ✅ Saved to video_series.json")
-                    except Exception as _e:
-                        log(f"  ⚠️ Series save: {_e}")
             except Exception as e:
                 log(f"⚠️ Main video upload failed: {e}")
 
