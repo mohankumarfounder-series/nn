@@ -1642,7 +1642,8 @@ def create_video(script_text, english_subtitles, images_input, output_name,
              "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,"
                     "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black",
              "-c:v", "libx264", "-preset", "veryfast", "-crf", "26",
-             "-c:a", "aac", short_file], timeout=180) / (1024*1024)
+             "-c:a", "aac", short_file], timeout=180)
+    mb = os.path.getsize(video_file) / (1024*1024) if os.path.exists(video_file) else 0
     log(f"  ✅ {video_file} ({mb:.1f}MB)")
 
     for f in [script_file, voice_file, human_file, mixed_file, raw_file, overlay_file]:
