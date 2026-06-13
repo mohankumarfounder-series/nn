@@ -754,7 +754,12 @@ NN_WIKIMEDIA_QUERIES = {
     "news":       ["Finance Ministry India", "RBI headquarters Mumbai"],
     "explainer":  ["Indian professional finance", "calculator money India"],
     "default":    ["Indian rupee notes", "Reserve Bank India"],
+    "insurance":  ["health insurance India IRDAI", "hospital India medical"],
+    "credit":     ["CIBIL credit bureau India", "credit card India"],
+    "tax":        ["Income Tax India Aaykar", "IT department India"],
+    "ecommerce":  ["ecommerce delivery India", "consumer forum India court"],
 }
+
 
 NN_POLLINATIONS_PROMPTS = {
     "warning":    "Indian person shocked looking at phone banking fraud alert, editorial illustration professional Indian aesthetic, no text",
@@ -765,6 +770,10 @@ NN_POLLINATIONS_PROMPTS = {
     "news":       "Reserve Bank India headquarters Mumbai dramatic architecture, financial news editorial style, no text",
     "comparison": "Two paths choice decision making India finance, infographic style illustration, no text",
     "default":    "Indian middle class family financial planning, warm editorial illustration, no text",
+    "insurance":  "Indian family insurance claim hospital worried, editorial illustration India, no text",
+    "tax":        "Indian professional income tax filing laptop calm, illustration India, no text",
+    "credit":     "Indian person checking CIBIL credit score phone, worried then happy, illustration, no text",
+    "ecommerce":  "Indian customer damaged delivery package upset, consumer rights, editorial India, no text",
 }
 
 def fetch_wikimedia_images_nn(format_type, output_dir, count=4):
@@ -778,7 +787,9 @@ def fetch_wikimedia_images_nn(format_type, output_dir, count=4):
             params = {
                 "action": "query", "generator": "search",
                 "gsrsearch": f"filetype:bitmap {query}",
-                "gsrlimit": str(count * 2), "prop": "imageinfo",
+                "gsrlimit": str(count * 3),
+                "gsroffset": str(__import__("random").randint(0, 8)),
+                "prop": "imageinfo",
                 "iiprop": "url|size|mime", "iiurlwidth": "1920", "format": "json"
             }
             _wikiraw = requests.get("https://commons.wikimedia.org/w/api.php",
@@ -804,9 +815,12 @@ def fetch_wikimedia_images_nn(format_type, output_dir, count=4):
 
 def fetch_pollinations_image_nn(format_type, topic, output_path):
     """Free AI-generated unique image per video — no API key needed."""
-    import urllib.parse, random
+    import urllib.parse, random, re as _re_nn
     base_prompt = NN_POLLINATIONS_PROMPTS.get(format_type, NN_POLLINATIONS_PROMPTS["default"])
-    url = (f"https://image.pollinations.ai/prompt/{urllib.parse.quote(base_prompt)}"
+    # Inject topic words → unique image per video (not same image for all "rights" videos)
+    _tw = " ".join(_re_nn.sub(r"[^\w\s]","",str(topic)[:50]).split()[:5])
+    unique_prompt = base_prompt.replace(", no text", f", {_tw}, no text")
+    url = (f"https://image.pollinations.ai/prompt/{urllib.parse.quote(unique_prompt)}"
            f"?width=1920&height=1080&nologo=true&enhance=true&seed={random.randint(1,99999)}")
     try:
         r = requests.get(url, timeout=20, stream=True)
@@ -874,7 +888,8 @@ def fetch_pexels_images(keyword, output_dir, count=5):
             resp = requests.get(
                 "https://api.pexels.com/v1/search",
                 headers=headers,
-                params={"query": query, "per_page": 3, "orientation": "landscape"},
+                params={"query": query, "per_page": 5, "orientation": "landscape",
+                "page": __import__("random").randint(1, 4)},
                 timeout=15
             )
             if resp.status_code != 200:
@@ -3773,6 +3788,23 @@ def process_video(topic=None, format_type=None, upload=False, privacy="public"):
     topic_val     = config["topic"]
     fmt           = config["format"]
     pexels_kw     = config.get("pexels_keyword", "default")
+    _tl2 = topic_val.lower()
+    if any(w in _tl2 for w in ["refund","return","complaint","online order","damaged"]):
+        pexels_kw = "ecommerce_complaint"
+    elif any(w in _tl2 for w in ["emi","loan","கடன்"]):
+        pexels_kw = "loan"
+    elif any(w in _tl2 for w in ["insurance","இன்சூரன்ஸ்","claim"]):
+        pexels_kw = "insurance"
+    elif any(w in _tl2 for w in ["tax","வரி","income tax","itr"]):
+        pexels_kw = "tax"
+    elif any(w in _tl2 for w in ["cibil","credit score","கிரெடிட்"]):
+        pexels_kw = "credit"
+    elif any(w in _tl2 for w in ["fd","sip","mutual fund","investment","முதலீடு"]):
+        pexels_kw = "investment"
+    elif any(w in _tl2 for w in ["fraud","scam","cyber","மோசடி"]):
+        pexels_kw = "warning"
+    elif any(w in _tl2 for w in ["court","rights","உரிமை","legal"]):
+        pexels_kw = "rights"
     hook_angle    = config.get("hook_angle", "")
     gender, _, _  = VOICE_ASSIGNMENT.get(fmt, VOICE_ASSIGNMENT["default"])
 
