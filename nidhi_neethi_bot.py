@@ -98,6 +98,27 @@ import concurrent.futures
 import datetime
 import hashlib
 import json
+
+def _topic_key(t):
+    """Normalize topic for fuzzy comparison."""
+    import re as _r2
+    return _r2.sub(r'[^\w\s]', '', str(t).lower().strip())[:45]
+
+def _is_duplicate_topic(new_topic, recent_topics, threshold=0.75):
+    """Return True if new_topic is too similar to any recent topic."""
+    new_key = _topic_key(new_topic)
+    for old in recent_topics:
+        old_key = _topic_key(old)
+        if new_key == old_key:
+            return True
+        new_words = set(new_key.split())
+        old_words = set(old_key.split())
+        if new_words and old_words:
+            overlap = len(new_words & old_words) / max(len(new_words), len(old_words))
+            if overlap >= threshold:
+                return True
+    return False
+
 import os
 import pickle
 import random
@@ -174,7 +195,7 @@ CHANNEL_EMAIL   = "nidhineethitamil@gmail.com"
 
 # 2 min video = ~320-360 Tamil words at -13% TTS rate
 # chars: ~2200-2600 (Tamil avg 6.5 chars/word)
-TARGET_MIN_CHARS = 3500
+TARGET_MIN_CHARS = 1200
 TARGET_MAX_CHARS = 3200
 
 # ═══════════════════════════════════════════════════════════════
@@ -760,7 +781,7 @@ def fetch_wikimedia_images_nn(format_type, output_dir, count=4):
                 "gsrlimit": str(count * 2), "prop": "imageinfo",
                 "iiprop": "url|size|mime", "iiurlwidth": "1920", "format": "json"
             }
-            resp = requests.get("https://commons.wikimedia.org/w/api.php",
+            _wikiraw = requests.get("https://commons.wikimedia.org/w/api.php",
                                params=params, timeout=15).json()
             pages = resp.get("query", {}).get("pages", {})
             for page in pages.values():
@@ -1642,7 +1663,8 @@ def create_video(script_text, english_subtitles, images_input, output_name,
              "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,"
                     "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black",
              "-c:v", "libx264", "-preset", "veryfast", "-crf", "26",
-             "-c:a", "aac", short_file], timeout=180) / (1024*1024)
+             "-c:a", "aac", short_file], timeout=180)
+    mb = os.path.getsize(video_file) / (1024*1024) if os.path.exists(video_file) else 0
     log(f"  ✅ {video_file} ({mb:.1f}MB)")
 
     for f in [script_file, voice_file, human_file, mixed_file, raw_file, overlay_file]:
@@ -3910,6 +3932,21 @@ def process_video(topic=None, format_type=None, upload=False, privacy="public"):
                 vid = upload_to_youtube(video, metadata, privacy)
                 if vid:
                     log(f"✅ Live: https://youtu.be/{vid}")
+                    try:
+                        import datetime as _dt
+                        _series = {}
+                        if os.path.exists(SERIES_FILE):
+                            with open(SERIES_FILE, encoding="utf-8") as _sf:
+                                _series = json.load(_sf)
+                        _series.setdefault(fmt, []).append({
+                            "topic": topic_val, "video_id": vid,
+                            "date": _dt.datetime.now().isoformat()
+                        })
+                        with open(SERIES_FILE, "w", encoding="utf-8") as _sf:
+                            json.dump(_series, _sf, ensure_ascii=False, indent=2)
+                        log(f"  ✅ Saved to video_series.json")
+                    except Exception as _se:
+                        log(f"  ⚠️ Series save: {_se}")
             except Exception as e:
                 log(f"⚠️ Main video upload failed: {e}")
 
