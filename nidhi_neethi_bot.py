@@ -2936,31 +2936,78 @@ def failure_alert(message):
     print(f"::error title=நிதி நீதி தமிழ் Bot Error::{message}")
     log(f"❌ ALERT: {message}")
 
-def validate_tags(tags_str):
-    """YouTube tags must be ASCII English only - non-ASCII causes HTTP 400."""
+DEFAULT_UPLOAD_TAGS = [
+    "tamil finance",
+    "personal finance tamil",
+    "money tips tamil",
+    "financial advice india",
+]
+
+YOUTUBE_TAG_CHAR_LIMIT = 500
+
+
+def _normalize_tags_input(tags_input):
+    """Accept LLM tags as comma-separated string, JSON list, or None."""
+    if tags_input is None:
+        return []
+    if isinstance(tags_input, list):
+        normalized = []
+        for item in tags_input:
+            if item is None:
+                continue
+            text = str(item).strip()
+            if text:
+                normalized.append(text)
+        return normalized
+    if isinstance(tags_input, str):
+        return [tag.strip() for tag in tags_input.split(",") if tag.strip()]
+    text = str(tags_input).strip()
+    return [text] if text else []
+
+
+def _youtube_tags_budget_cost(tags):
+    """YouTube counts commas and wraps spaced tags as quoted (+2 per space)."""
+    if not tags:
+        return 0
+    total = 0
+    for index, tag in enumerate(tags):
+        if index > 0:
+            total += 1
+        total += len(tag) + (tag.count(" ") * 2)
+    return total
+
+
+def validate_tags(tags_input, max_tags=30):
+    """Return YouTube-safe ASCII tags. LLM often returns tags as a JSON list."""
     import re as _re
-    tags = [t.strip() for t in str(tags_str).split(',') if t.strip()]
+
     cleaned = []
-    for tag in tags:
-        # Remove ALL non-ASCII chars (Tamil, rupee sign, em-dash, etc.)
-        tag = tag.encode("ascii", errors="ignore").decode("ascii")
-        # Remove special chars YouTube rejects
-        for ch in list('<>"&\'#@!'):
-            tag = tag.replace(ch, '')
-        tag = _re.sub(r'\s+', ' ', tag).strip()
-        if len(tag) >= 2:
-            cleaned.append(tag[:100].strip())
-    result, total = [], 0
-    for tag in cleaned[:30]:
-        if total + len(tag) + 1 <= 490:
-            result.append(tag)
-            total += len(tag) + 1
-        else:
+    seen = set()
+    for raw_tag in _normalize_tags_input(tags_input):
+        tag = raw_tag.encode("ascii", errors="ignore").decode("ascii")
+        for ch in '<>&\'#@![]{}|\\':
+            tag = tag.replace(ch, "")
+        tag = _re.sub(r"\s+", " ", tag).strip(" .,-")
+        if len(tag) < 2:
+            continue
+        dedupe_key = tag.lower()
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        cleaned.append(tag[:100].strip())
+
+    result = []
+    for tag in cleaned:
+        if len(result) >= max_tags:
             break
+        candidate = result + [tag]
+        if _youtube_tags_budget_cost(candidate) > YOUTUBE_TAG_CHAR_LIMIT:
+            continue
+        result = candidate
+
     if not result:
-        result = ['tamil finance', 'personal finance tamil',
-                  'money tips tamil', 'financial advice india']
-    return ', '.join(result)
+        result = DEFAULT_UPLOAD_TAGS.copy()
+    return result
 
 def generate_thumbnail(title, format_type, output_name, bg_image_path=None):
     """Dynamic thumbnail — big number focal point, 4 accent patterns."""
@@ -3385,7 +3432,7 @@ def upload_short_to_youtube(short_path, main_title, main_description, tags_str, 
         "snippet": {
             "title":           short_title,
             "description":     main_description[:1000] + "\n\n#Shorts #நிதிநீதிதமிழ் #TamilFinance",
-            "tags":            [t.strip() for t in validate_tags(tags_str).split(",") if t.strip()][:20],
+            "tags":            validate_tags(tags_str, max_tags=20),
             "categoryId":      "22",
             "defaultLanguage": "ta",
         },
@@ -3425,8 +3472,7 @@ def upload_to_youtube(video_path, metadata, privacy="public"):
         "snippet": {
             "title":       metadata.get("title", "")[:100],
             "description": metadata.get("description", "")[:5000],
-            "tags":        [t.strip() for t in
-                           validate_tags(metadata.get("tags","")).split(",")][:30],
+            "tags":        validate_tags(metadata.get("tags", ""), max_tags=30),
             "categoryId":  "27",   # Education (better for finance/consumer rights content)
         },
         "status": {
