@@ -45,9 +45,13 @@ BEAT 4 — CLOSE (10 seconds):
   A) SHARE TRIGGER: "இந்த video உங்கள் family-க்கு share பண்ணுங்கள் — இந்த தவறை அவங்களும் செய்கிறார்களா?"
   B) COMMENT TRIGGER: "உங்கள் bank இந்த charge போட்டிருக்காங்களா? கீழே comment பண்ணுங்கள் 👇"
   C) NEXT VIDEO HOOK: "அடுத்த video-ல் இன்னும் ஒரு bank trick பார்க்கலாம் — subscribe பண்ணிட்டீங்களா?"
-  Pick A for consumer rights/fraud topics (most shareable)
-  Pick B for banking/CIBIL topics (drives comments)
-  Pick C for investment topics (builds subscribers)
+  Pick B for warning/rights topics (most shareable — drives new viewers)
+  Pick C for banking/CIBIL topics (2-choice comment → algorithm boost)
+  Pick A for investment/explainer (subscriber conversion from viewers)
+
+  MANDATORY CHANNEL VALUE LINE (add before CTA in every script):
+  "Bank tricks, Tax savings, Insurance claims, Consumer rights — Tamil-ல் தினமும்.
+   Subscribe பண்ணாதவர்கள் இப்போதே பண்ணுங்கள் — Bell icon 🔔 click செய்யுங்கள்!"
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━
 HARD RULES:
