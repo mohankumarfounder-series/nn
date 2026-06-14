@@ -250,6 +250,8 @@ VOICE_ASSIGNMENT = {
 
 RATE_BY_FORMAT_NN = {
     "warning":    "-8%",    # urgent alert — crisp delivery
+    "howto":      "-9%",    # step-by-step — clear and measured
+    "quicktip":   "-7%",    # energetic — Shorts feel
     "news":       "-7%",    # fast, breaking news energy
     "explainer":  "-11%",   # clear for complex financial info
     "rights":     "-10%",   # authoritative, measured
@@ -263,6 +265,8 @@ RATE_BY_FORMAT_NN = {
 
 BGM_PROFILES = {
     "warning":    {"freq": "220", "freq2": "440",  "mood": "tense corporate"},
+    "howto":      {"freq": "528", "freq2": "639",  "mood": "clear instructional"},
+    "quicktip":   {"freq": "432", "freq2": "528",  "mood": "energetic upbeat"},
     "explainer":  {"freq": "396", "freq2": "528",  "mood": "calm informative"},
     "rights":     {"freq": "285", "freq2": "570",  "mood": "empowering"},
     "comparison": {"freq": "417", "freq2": "528",  "mood": "analytical neutral"},
@@ -325,6 +329,8 @@ EVERGREEN_TOPICS = [
 
 CONTENT_FORMAT_TYPES = [
     "warning",
+    "howto",      # Step-by-step — highest subscriber conversion
+    "quicktip",   # Did you know — Shorts-optimized (CIBIL Short proved this works)
     "explainer",
     "rights",
     "comparison",
@@ -757,7 +763,9 @@ NN_WIKIMEDIA_QUERIES = {
     "story":      ["Indian family savings home", "middle class India finance"],
     "news":       ["Finance Ministry India", "RBI headquarters Mumbai"],
     "explainer":  ["Indian professional finance", "calculator money India"],
-    "default":    ["Indian rupee notes", "Reserve Bank India"],
+"default":    ["Indian rupee notes", "Reserve Bank India"],
+    "howto":      ["checklist India finance", "steps guide India document"],
+    "quicktip":   ["lightbulb idea India", "quick tip finance India"],
     "insurance":  ["health insurance India IRDAI", "hospital India medical"],
     "credit":     ["CIBIL credit bureau India", "credit card India"],
     "tax":        ["Income Tax India Aaykar", "IT department India"],
@@ -773,7 +781,9 @@ NN_POLLINATIONS_PROMPTS = {
     "story":      "Indian family budget planning kitchen table, warm realistic photography India, no text",
     "news":       "Reserve Bank India headquarters Mumbai dramatic architecture, financial news editorial style, no text",
     "comparison": "Two paths choice decision making India finance, infographic style illustration, no text",
-    "default":    "Indian middle class family financial planning, warm editorial illustration, no text",
+"default":    "Indian middle class family financial planning, warm editorial illustration, no text",
+    "howto":      "Indian professional explaining step by step checklist whiteboard, clear instructional illustration India, no text",
+    "quicktip":   "Indian person surprised learning new money fact, lightbulb moment, energetic editorial India, no text",
     "insurance":  "Indian family insurance claim hospital worried, editorial illustration India, no text",
     "tax":        "Indian professional income tax filing laptop calm, illustration India, no text",
     "credit":     "Indian person checking CIBIL credit score phone, worried then happy, illustration, no text",
