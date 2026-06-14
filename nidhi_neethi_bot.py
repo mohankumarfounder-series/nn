@@ -602,7 +602,7 @@ def save_queue(q):
 
 USED_TOPICS_FILE = "used_topics.txt"
 
-def load_recent_topics(n=20):
+def load_recent_topics(n=30):
     """
     Load recently used topics from used_topics.txt (committed to git).
     This file persists across GitHub Actions runs — solves stateless CI problem.
