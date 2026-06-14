@@ -793,7 +793,9 @@ def fetch_wikimedia_images_nn(format_type, output_dir, count=4):
                 "iiprop": "url|size|mime", "iiurlwidth": "1920", "format": "json"
             }
             _wikiraw = requests.get("https://commons.wikimedia.org/w/api.php",
-                               params=params, timeout=15).json()
+                               params=params, timeout=10)
+            if _wikiraw.status_code != 200 or not _wikiraw.text.strip(): continue
+            resp = _wikiraw.json()
             pages = resp.get("query", {}).get("pages", {})
             for page in pages.values():
                 ii = page.get("imageinfo", [{}])[0]
@@ -2921,19 +2923,19 @@ def failure_alert(message):
     log(f"❌ ALERT: {message}")
 
 def validate_tags(tags_str):
-    """YouTube max: 500 chars total, max 30 tags, no special chars."""
+    """YouTube tags must be ASCII English only - non-ASCII causes HTTP 400."""
     import re as _re
-    tags = [t.strip() for t in tags_str.split(",") if t.strip()]
+    tags = [t.strip() for t in str(tags_str).split(',') if t.strip()]
     cleaned = []
     for tag in tags:
-        # Remove chars YouTube rejects: < > " & # @ and leading/trailing special chars
-        tag = _re.sub(r'[<>"&]', '', tag)
-        tag = tag.strip('#@').strip()
-        # Max 100 chars per tag
-        tag = tag[:100].strip()
-        if tag and len(tag) >= 2:
-            cleaned.append(tag)
-    # Enforce 500 char total, max 30 tags
+        # Remove ALL non-ASCII chars (Tamil, rupee sign, em-dash, etc.)
+        tag = tag.encode("ascii", errors="ignore").decode("ascii")
+        # Remove special chars YouTube rejects
+        for ch in list('<>"&\'#@!'):
+            tag = tag.replace(ch, '')
+        tag = _re.sub(r'\s+', ' ', tag).strip()
+        if len(tag) >= 2:
+            cleaned.append(tag[:100].strip())
     result, total = [], 0
     for tag in cleaned[:30]:
         if total + len(tag) + 1 <= 490:
@@ -2941,23 +2943,10 @@ def validate_tags(tags_str):
             total += len(tag) + 1
         else:
             break
-    return ", ".join(result)
-
-
-THUMBNAIL_DIR = "thumbnails"
-TAMIL_BOLD_FONT = "/usr/share/fonts/truetype/noto/NotoSansTamil-Bold.ttf"
-TAMIL_REG_FONT  = "/usr/share/fonts/truetype/noto/NotoSansTamil-Regular.ttf"
-ENG_BOLD_FONT   = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-
-NN_THUMB_FORMATS = {
-    "warning":    {"c1":(88,5,5),   "c2":(22,0,0),  "acc":(255,55,55),  "bb":(185,0,0),   "badge":"⚠ WARNING"},
-    "explainer":  {"c1":(5,18,72),  "c2":(0,5,32),  "acc":(75,152,255), "bb":(22,88,192), "badge":"GUIDE"},
-    "rights":     {"c1":(0,52,18),  "c2":(0,16,5),  "acc":(0,202,92),   "bb":(0,142,52),  "badge":"RIGHTS"},
-    "comparison": {"c1":(36,0,72),  "c2":(11,0,32), "acc":(172,72,255), "bb":(112,32,192),"badge":"VS"},
-    "story":      {"c1":(52,20,0),  "c2":(20,5,0),  "acc":(255,132,0),  "bb":(172,82,0),  "badge":"STORY"},
-    "news":       {"c1":(5,5,22),   "c2":(0,0,8),   "acc":(255,192,0),  "bb":(172,132,0), "badge":"BREAKING"},
-    "default":    {"c1":(5,18,48),  "c2":(0,5,22),  "acc":(255,192,45), "bb":(172,132,0), "badge":"FINANCE"},
-}
+    if not result:
+        result = ['tamil finance', 'personal finance tamil',
+                  'money tips tamil', 'financial advice india']
+    return ', '.join(result)
 
 def generate_thumbnail(title, format_type, output_name, bg_image_path=None):
     """Dynamic thumbnail — big number focal point, 4 accent patterns."""
