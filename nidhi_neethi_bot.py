@@ -2986,7 +2986,7 @@ def generate_thumbnail(title, format_type, output_name, bg_image_path=None):
             try:
                 bg  = Image.open(bg_image_path).convert("RGB").resize((W,H),Image.LANCZOS)
                 bg  = bg.filter(ImageFilter.GaussianBlur(radius=12))
-                bg  = ImageEnhance.Brightness(bg).enhance(0.22)
+                bg  = ImageEnhance.Brightness(bg).enhance(0.30)  # slightly lighter for visibility
                 tint= Image.new("RGB",(W,H),c1)
                 img = Image.blend(bg, tint, alpha=0.45)
             except Exception:
@@ -3071,6 +3071,8 @@ def generate_thumbnail(title, format_type, output_name, bg_image_path=None):
             "comparison":"🔄 ஒப்பீடு",
             "story":     "📖 உண்மை கதை",
             "news":      "📢 செய்தி",
+            "howto":     "✅ How To",
+            "quicktip":  "⚡ Quick Tip",
         }
         badge = badge_map.get(format_type, "💰 நிதி")
 
@@ -3087,19 +3089,47 @@ def generate_thumbnail(title, format_type, output_name, bg_image_path=None):
             d.text((28+badge_w//2, 51), badge, font=af(badge,26),
                    fill=txt_col, anchor="mm")
 
-        # 2. Big number — right side focal point
+        # 2. Big number — dominant focal point for CTR
         if hook_number:
-            nfs  = max(80, min(130, 390//max(len(hook_number),1)))
+            # Larger font — number must be readable as thumbnail
+            nfs  = max(110, min(160, 420//max(len(hook_number),1)))
             nfnt = lf(nfs)
-            sh(W-260, H//2-45, hook_number, nfnt, acc, shadow=(0,0,0))
+            nx   = W - 270
+            ny   = H//2 - 60
+            # Draw bright pill background for max contrast
+            pill_pad = 18
+            try:
+                bbox = d.textbbox((nx, ny), hook_number, font=nfnt, anchor="mm")
+                d.rounded_rectangle(
+                    [bbox[0]-pill_pad, bbox[1]-pill_pad,
+                     bbox[2]+pill_pad, bbox[3]+pill_pad],
+                    radius=16, fill=acc)
+                # Number in black on accent background
+                num_col = (0,0,0) if sum(acc) > 450 else (255,255,255)
+                d.text((nx, ny), hook_number, font=nfnt, fill=num_col, anchor="mm")
+            except Exception:
+                sh(nx, ny, hook_number, nfnt, acc, shadow=(0,0,0))
+            # Benefit label above number ("சேமிக்கலாம்" / "SAVE" / "GET BACK")
+            benefit_labels = {
+                "warning":    "இழக்காதீர்!",
+                "rights":     "உரிமை பெறுங்கள்",
+                "investment": "சம்பாதிக்கலாம்",
+                "explainer":  "சேமிக்கலாம்",
+                "comparison": "சிறந்தது இது",
+                "story":      "உண்மை கதை",
+                "news":       "இப்போதே!",
+            }
+            benefit_lbl = benefit_labels.get(format_type, "சேமிக்கலாம்")
+            sh(nx, ny - nfs//2 - 34, benefit_lbl, af(benefit_lbl, 30),
+               (255, 255, 255), shadow=(0,0,0))
 
         # 3. Title — left side large
         lines = wrap(title, 15)
         right_margin = W-300 if hook_number else W-40
         ty = title_y_start
         for i, ln in enumerate(lines):
-            fs  = 76 if i==0 else 56
-            col = (255,255,255) if i==0 else (228,218,200)
+            fs  = 88 if i==0 else 62
+            col = (255,255,255) if i==0 else (235,225,210)
             sh(28, ty, ln, af(ln, fs), col)
             ty += fs + 10
 
@@ -3977,10 +4007,19 @@ def process_video(topic=None, format_type=None, upload=False, privacy="public"):
                 if os.path.exists(short_path):
                     _yt2 = get_authenticated_service()
                     if _yt2:
+                        # Shorts-optimized title: shorter + hook first
+                        _main_title = metadata.get("title", "")
+                        _shorts_title = _main_title[:60].strip()
+                        if len(_main_title) > 60:
+                            _shorts_title = _main_title[:57].strip() + "..."
+                        _shorts_desc = (
+                            metadata.get("description", "")[:500] +
+                            "\n\n#Shorts #TamilFinance #MoneyTips #நிதிநீதி"
+                        )
                         upload_short_to_youtube(
                             short_path,
-                            metadata.get("title", ""),
-                            metadata.get("description", ""),
+                            _shorts_title,
+                            _shorts_desc,
                             metadata.get("tags", ""),
                             _yt2
                         )
