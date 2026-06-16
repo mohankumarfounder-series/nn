@@ -213,27 +213,29 @@ VOICE_MALE   = "ta-IN-ValluvarNeural"  # authoritative male
 # Voice EQ profiles
 # Light, natural EQ — minimal processing = less robotic
 EQ_FEMALE_FINANCE = (
-    "highpass=f=90,"
-    "equalizer=f=250:t=q:w=0.8:g=2,"    # warmth
-    "equalizer=f=800:t=q:w=0.9:g=2,"    # presence
-    "equalizer=f=2500:t=q:w=1:g=1.5,"   # clarity
-    "equalizer=f=5000:t=q:w=1:g=-2,"    # reduce sibilance
-    "equalizer=f=8000:t=q:w=1:g=-3,"    # cut harshness
-    "aecho=0.8:0.6:18:0.04,"            # tiny room presence — natural warmth, no wobble
-    "acompressor=threshold=-18dB:ratio=2:attack=8:release=80:makeup=2,"
-    "loudnorm=I=-14:TP=-1.5:LRA=9"
+    "highpass=f=85,"
+    "equalizer=f=200:t=q:w=0.9:g=1.5,"  # body warmth
+    "equalizer=f=800:t=q:w=0.8:g=2,"    # presence
+    "equalizer=f=3000:t=q:w=1:g=1.5,"   # clarity
+    "equalizer=f=5500:t=q:w=1:g=-2,"    # de-ess sibilance
+    "equalizer=f=9000:t=q:w=1:g=-3,"    # cut digital harshness
+    "aecho=0.75:0.65:28:0.06,"          # natural room warmth
+    "acompressor=threshold=-20dB:ratio=1.8:attack=8:release=200:makeup=2,"
+    "atempo=0.98,"                        # PallaviNeural sounds natural slightly slower
+    "loudnorm=I=-14:TP=-1.5:LRA=11"
 )
 
 # Light natural EQ for male — warm, authoritative, not processed
 EQ_MALE_FINANCE = (
-    "highpass=f=70,"
-    "equalizer=f=150:t=q:w=0.7:g=2,"    # chest resonance
-    "equalizer=f=500:t=q:w=0.8:g=1.5,"
-    "equalizer=f=2000:t=q:w=1:g=2,"     # intelligibility
-    "equalizer=f=6000:t=q:w=1:g=-2,"
-    "aecho=0.8:0.5:12:0.03,"            # tiny room warmth — no wobble
-    "acompressor=threshold=-16dB:ratio=2:attack=6:release=60:makeup=2.5,"
-    "loudnorm=I=-14:TP=-1.5:LRA=9"
+    "highpass=f=65,"
+    "equalizer=f=120:t=q:w=0.8:g=2,"    # chest resonance
+    "equalizer=f=400:t=q:w=0.9:g=1.5,"  # warmth
+    "equalizer=f=2200:t=q:w=1:g=2,"     # intelligibility
+    "equalizer=f=6500:t=q:w=1:g=-2,"    # cut harshness
+    "aecho=0.72:0.58:22|38:0.07|0.04,"  # dual-tap room
+    "acompressor=threshold=-18dB:ratio=1.7:attack=7:release=250:makeup=2.5,"
+    "atempo=0.97,"                        # ValluvarNeural sounds better slightly slower
+    "loudnorm=I=-14:TP=-1.5:LRA=11"
 )
 
 # Content type → voice assignment
@@ -1493,7 +1495,7 @@ def create_video(script_text, english_subtitles, images_input, output_name,
     t0 = time.time()
     try:
         r = run(["edge-tts", "--file", script_file, "--voice", voice_id,
-                 "--rate=" + RATE_BY_FORMAT_NN.get(format_type, "-10%"), "--pitch=+0Hz", "--write-media", voice_file],
+                 "--rate=" + RATE_BY_FORMAT_NN.get(format_type, "-12%"), "--pitch=+2Hz", "--write-media", voice_file],
                 timeout=300)
     except subprocess.TimeoutExpired:
         log("❌ TTS timeout"); return None
