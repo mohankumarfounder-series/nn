@@ -2,7 +2,7 @@ name: Daily Videos
 
 on:
   schedule:
-    - cron: "30 3 * * *"  # 09:00 IST — morning prime time
+    - cron: "30 3 * * *"   # 09:00 IST — morning prime time
     - cron: "30 15 * * *"  # 21:00 IST — evening prime time
   workflow_dispatch:
     inputs:
@@ -10,26 +10,27 @@ on:
         description: "Custom Tamil topic (optional)"
         required: false
       format:
-        description: "Format: warning/explainer/rights/comparison/story/news"
+        description: "Format: warning/explainer/rights/comparison/story/news/howto/quicktip"
         required: false
         default: ""
-      slot:
-        description: "Slot: morning/evening"
-        required: false
-        default: "morning"
       upload:
         description: "Upload to YouTube? yes/no"
         required: false
         default: "yes"
+
+concurrency:
+  group: nn-daily
+  cancel-in-progress: false
 
 permissions:
   contents: write
 
 env:
   GEMINI_KEY:             ${{ secrets.GEMINI_KEY }}
-  GITHUB_TOKEN:           ${{ secrets.GH_PAT_TOKEN }}
   GROQ_API_KEY:           ${{ secrets.GROQ_API_KEY }}
   CEREBRAS_API_KEY:       ${{ secrets.CEREBRAS_API_KEY }}
+  GITHUB_TOKEN:           ${{ secrets.GH_PAT_TOKEN }}
+  GITHUB_MODELS_TOKEN:    ${{ secrets.GH_PAT_TOKEN }}
   PEXELS_API_KEY:         ${{ secrets.PEXELS_API_KEY }}
   YOUTUBE_TOKEN_BASE64:   ${{ secrets.YOUTUBE_TOKEN_BASE64 }}
   CLIENT_SECRETS_BASE64:  ${{ secrets.CLIENT_SECRETS_BASE64 }}
@@ -58,34 +59,11 @@ jobs:
 
       - name: Verify tools
         run: |
-          which ffmpeg && ffmpeg -version | head -1
-          which edge-tts || echo "WARNING: edge-tts not in PATH"
+          ffmpeg -version | head -1
+          edge-tts --version 2>/dev/null || python3 -c "import edge_tts; print('edge_tts OK')"
           python3 -c "import google.genai; print('google-genai OK')"
-
-      - name: Check secrets
-        run: |
-          echo "GEMINI_KEY set:           ${{ secrets.GEMINI_KEY != '' }}"
-          echo "GROQ_API_KEY set:         ${{ secrets.GROQ_API_KEY != '' }}"
-          echo "PEXELS_API_KEY set:       ${{ secrets.PEXELS_API_KEY != '' }}"
-          echo "YOUTUBE_TOKEN_BASE64 set: ${{ secrets.YOUTUBE_TOKEN_BASE64 != '' }}"
           if [ -z "$GEMINI_KEY" ] && [ -z "$GROQ_API_KEY" ]; then
             echo "ERROR: No LLM key set"; exit 1
-          fi
-
-      - name: Detect slot
-        id: slot
-        run: |
-          HOUR=$(date -u +%H)
-          INPUT_SLOT="${{ github.event.inputs.slot }}"
-          if [ -n "$INPUT_SLOT" ]; then SLOT="$INPUT_SLOT"
-          elif [ "$HOUR" -ge 1 ] && [ "$HOUR" -le 6 ]; then SLOT="morning"
-          else SLOT="evening"; fi
-          echo "slot=$SLOT" >> $GITHUB_OUTPUT
-          echo "▶ Slot: $SLOT (UTC hour: $HOUR)"
-          if [ "$SLOT" = "morning" ]; then
-            echo "preferred_formats=explainer,comparison" >> $GITHUB_OUTPUT
-          else
-            echo "preferred_formats=warning,story,rights" >> $GITHUB_OUTPUT
           fi
 
       - name: Setup fallback image
@@ -95,7 +73,6 @@ jobs:
           img = Image.new('RGB', (1920,1080), (10,30,60))
           d = ImageDraw.Draw(img)
           d.rectangle([80,400,600,680], fill=(20,50,100))
-          d.rectangle([640,200,1840,880], fill=(15,40,80))
           img.save('image.png')
           " || true
 
@@ -104,48 +81,44 @@ jobs:
           [ -n "$YOUTUBE_TOKEN_BASE64" ] && echo "$YOUTUBE_TOKEN_BASE64" | base64 -d > youtube_token.pickle || true
           [ -n "$CLIENT_SECRETS_BASE64" ] && echo "$CLIENT_SECRETS_BASE64" | base64 -d > client_secrets.json || true
 
-
-      - name: Validate and refresh YouTube token
+      - name: Validate YouTube token
         run: |
           SZ=$(wc -c < youtube_token.pickle 2>/dev/null || echo 0)
-          echo "pickle_size=${SZ}_bytes"
-          [ "$SZ" -lt 100 ] && echo "ERROR: pickle missing/empty" && exit 1
-          python3 -c "import pickle,sys; c=pickle.load(open('youtube_token.pickle','rb')); print('valid='+str(c.valid)+',expired='+str(c.expired)+',has_refresh='+str(bool(c.refresh_token)))" 2>&1 || echo "TOKEN_DECODE_FAILED"
+          [ "$SZ" -lt 100 ] && echo "No valid token — generate only" && exit 0
+          python3 -c "import pickle; c=pickle.load(open('youtube_token.pickle','rb')); print('valid='+str(c.valid)+' expired='+str(c.expired))" || echo "TOKEN_DECODE_FAILED"
+
       - name: Generate and upload
         run: |
           TOPIC="${{ github.event.inputs.topic }}"
           FORMAT="${{ github.event.inputs.format }}"
           UPLOAD="${{ github.event.inputs.upload }}"
-          SLOT="${{ steps.slot.outputs.slot }}"
-          PREFERRED="${{ steps.slot.outputs.preferred_formats }}"
 
-          export SLOT_HINT="$SLOT"
-          export PREFERRED_FORMATS="$PREFERRED"
-
-          CMD="python3 nidhi_neethi_bot.py --day today"
-          [ -n "$TOPIC" ] && CMD="python3 nidhi_neethi_bot.py --topic \"$TOPIC\""
+          if [ -n "$TOPIC" ]; then
+            CMD="python3 nidhi_neethi_bot.py --topic \"$TOPIC\""
+          else
+            CMD="python3 nidhi_neethi_bot.py --day today"
+          fi
           [ -n "$FORMAT" ] && CMD="$CMD --format $FORMAT"
           [ -f youtube_token.pickle ] && [ "${UPLOAD}" != "no" ] && CMD="$CMD --upload"
 
-          echo "▶ Running: $CMD (slot=$SLOT)"
-          # || true prevents workflow failure on LLM errors
-          eval $CMD || echo "⚠️ Bot exited with error — video may still be saved"
+          echo "▶ Running: $CMD"
+          eval $CMD 2>&1 | tee /tmp/bot.log || echo "⚠️ Bot error"
 
       - name: Show results
         if: always()
         run: |
-          echo "=== Videos ===" && ls -lh videos/    2>/dev/null || echo "none"
-          echo "=== Shorts ===" && ls -lh shorts/    2>/dev/null || echo "none"
-          echo "=== Scripts ===" && ls -lh scripts/  2>/dev/null || echo "none"
+          echo "=== Videos ===" && ls -lh videos/ 2>/dev/null || echo "none"
+          echo "=== Shorts ===" && ls -lh shorts/ 2>/dev/null || echo "none"
+          echo "=== Log tail ===" && tail -20 /tmp/bot.log 2>/dev/null || true
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: nidhi-neethi-${{ steps.slot.outputs.slot }}-${{ github.run_number }}
+          name: nn-output-${{ github.run_number }}
           path: |
             videos/
             shorts/
             metadata/
             scripts/
           retention-days: 1
-          if-no-files-found: warn
+          if-no-files-found: ignore
