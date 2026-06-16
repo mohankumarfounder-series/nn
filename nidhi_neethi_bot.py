@@ -219,7 +219,7 @@ EQ_FEMALE_FINANCE = (
     "equalizer=f=2500:t=q:w=1:g=1.5,"   # clarity
     "equalizer=f=5000:t=q:w=1:g=-2,"    # reduce sibilance
     "equalizer=f=8000:t=q:w=1:g=-3,"    # cut harshness
-    "vibrato=f=4.2:d=0.022,"             # subtle natural wobble
+    "aecho=0.8:0.6:18:0.04,"            # tiny room presence — natural warmth, no wobble
     "acompressor=threshold=-18dB:ratio=2:attack=8:release=80:makeup=2,"
     "loudnorm=I=-14:TP=-1.5:LRA=9"
 )
@@ -231,7 +231,7 @@ EQ_MALE_FINANCE = (
     "equalizer=f=500:t=q:w=0.8:g=1.5,"
     "equalizer=f=2000:t=q:w=1:g=2,"     # intelligibility
     "equalizer=f=6000:t=q:w=1:g=-2,"
-    "vibrato=f=3.5:d=0.018,"             # very subtle on male
+    "aecho=0.8:0.5:12:0.03,"            # tiny room warmth — no wobble
     "acompressor=threshold=-16dB:ratio=2:attack=6:release=60:makeup=2.5,"
     "loudnorm=I=-14:TP=-1.5:LRA=9"
 )
@@ -3880,8 +3880,35 @@ def generate_video_scenes(output_name, topic="", scene_type="default",
     return paths
 
 
+def cleanup_old_artifacts(max_age_hours=24):
+    """Delete generated artifacts older than max_age_hours to keep runner disk clean."""
+    import time as _t
+    now = _t.time()
+    cutoff = now - (max_age_hours * 3600)
+    removed = 0
+    dirs_to_clean = [OUTPUT_DIR, SHORTS_DIR, METADATA_DIR, SCRIPTS_DIR,
+                     PEXELS_DIR, SUBS_DIR, "/tmp"]
+    extensions_to_clean = {".mp4", ".mp3", ".jpg", ".jpeg", ".png",
+                            ".srt", ".txt", ".json"}
+    for d in dirs_to_clean:
+        if not os.path.exists(d):
+            continue
+        for root, dirs, files in os.walk(d):
+            for fname in files:
+                fpath = os.path.join(root, fname)
+                try:
+                    if (os.path.splitext(fname)[1].lower() in extensions_to_clean
+                            and os.path.getmtime(fpath) < cutoff):
+                        os.remove(fpath)
+                        removed += 1
+                except Exception:
+                    pass
+    log(f"🧹 Cleanup: removed {removed} artifacts older than {max_age_hours}h")
+
+
 def process_video(topic=None, format_type=None, upload=False, privacy="public"):
     ensure_dirs()
+    cleanup_old_artifacts(max_age_hours=24)
     t_start = time.time()
 
     # Step 1: Decide topic
@@ -3932,54 +3959,60 @@ def process_video(topic=None, format_type=None, upload=False, privacy="public"):
     img_dir   = os.path.join(PEXELS_DIR, safe_name)
     os.makedirs(img_dir, exist_ok=True)
 
-    # Layer 1 (GUARANTEED): Animated PIL scenes — zero network, always works
-    log("🎨 Generating video scenes...")
-    images = generate_video_scenes(safe_name, topic=topic_val,
-                                   scene_type=fmt, num_scenes=8, channel="nn")
-    log(f"  ✅ Scenes: {len(images)} generated")
+    # ── PARALLEL PHASE 1: Images + BGM + Script all at once ──────────
+    log("🚀 Phase 1: Images + BGM + Script in parallel...")
 
-    # Layer 2: Pexels (fast, reliable)
-    log("📸 Fetching Pexels images...")
-    pexels_imgs = fetch_pexels_images(pexels_kw, img_dir, count=5)
-    if pexels_imgs:
-        images = pexels_imgs + images
+    def fetch_all_images():
+        result = {"scenes": [], "pexels": [], "wiki": [], "poll": None}
+        # Layer 1: PIL scenes (zero network, guaranteed)
+        result["scenes"] = generate_video_scenes(
+            safe_name, topic=topic_val, scene_type=fmt, num_scenes=8, channel="nn")
+        # Layer 2: Pexels
+        try:
+            result["pexels"] = fetch_pexels_images(pexels_kw, img_dir, count=5)
+        except Exception as e:
+            log(f"  ⚠️ Pexels skipped: {e}")
+        # Layer 3: Wikimedia
+        try:
+            result["wiki"] = fetch_wikimedia_images_nn(fmt, img_dir, count=5)
+        except Exception as e:
+            log(f"  ⚠️ Wikimedia skipped: {e}")
+        # Layer 4: Pollinations AI
+        try:
+            poll_path = os.path.join(img_dir, "ai_scene.jpg")
+            result["poll"] = fetch_pollinations_image_nn(fmt, topic_val, poll_path)
+        except Exception as e:
+            log(f"  ⚠️ Pollinations skipped: {e}")
+        return result
 
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+        images_future = pool.submit(fetch_all_images)
+        bgm_future    = pool.submit(ensure_bgm, fmt)
+        script_future = pool.submit(generate_script, topic_val, fmt, hook_angle, gender)
+
+        img_result = images_future.result()
+        bgm_path   = bgm_future.result()
+        script     = script_future.result()
+
+    # Assemble images in priority order: poll > wiki > pexels > scenes
+    poll_img  = img_result["poll"]
+    wiki_imgs = img_result["wiki"]
+    images    = img_result["scenes"]
+    if img_result["pexels"]:
+        images = img_result["pexels"] + images
     if not images:
         ensure_fallback_image()
         images = ["image.png"] if os.path.exists("image.png") else []
-
-    # Layer 3: Wikimedia (bonus — non-blocking)
-    wiki_imgs = []
-    try:
-        wiki_imgs = fetch_wikimedia_images_nn(fmt, img_dir, count=5)
-        if wiki_imgs:
-            images = wiki_imgs + images
-            log(f"  ✅ Wikimedia: {len(wiki_imgs)} images")
-    except Exception as e:
-        log(f"  ⚠️ Wikimedia skipped: {e}")
-
-    # Layer 4: Pollinations AI (bonus — non-blocking)
-    poll_img = None
-    try:
-        poll_path = os.path.join(img_dir, "ai_scene.jpg")
-        poll_img  = fetch_pollinations_image_nn(fmt, topic_val, poll_path)
-        if poll_img:
-            images = [poll_img] + images
-            log(f"  🎨 AI image generated")
-    except Exception as e:
-        log(f"  ⚠️ Pollinations skipped: {e}")
+    if wiki_imgs:
+        images = wiki_imgs + images
+        log(f"  ✅ Wikimedia: {len(wiki_imgs)} images")
+    if poll_img:
+        images = [poll_img] + images
+        log("  🎨 AI image generated")
 
     log(f"  📦 Total images: {len(images)}")
-    # Best bg for thumbnail
     thumb_bg = poll_img or (wiki_imgs[0] if wiki_imgs else None)
 
-    # Step 3: Generate BGM
-    bgm_path = ensure_bgm(fmt)
-
-    # Step 4: Generate script first (most critical), then metadata
-    # Sequential not parallel — avoids double Groq 429 rate limit hits
-    log("🤖 Step 1: Generating script...")
-    script = generate_script(topic_val, fmt, hook_angle, gender)
     if not script or not script.strip():
         log("  ⚠️ All LLM providers failed — using pre-written fallback script")
         script = _get_fallback_script(topic_val, fmt)
@@ -3987,7 +4020,10 @@ def process_video(topic=None, format_type=None, upload=False, privacy="public"):
             log("  ❌ No fallback available — aborting")
             return None
 
-    log("🤖 Step 2: Generating subtitles + metadata + MCQ (parallel)...")
+    # ── PARALLEL PHASE 2: Subtitles + Metadata + MCQ ─────────────────
+    # subtitles = textwrap (no LLM), metadata = Groq, mcq = hardcoded
+    # No provider race — safe to run all together
+    log("🚀 Phase 2: Subtitles + Metadata + MCQ in parallel...")
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
         sf  = pool.submit(generate_subtitles, script)
         mf  = pool.submit(generate_metadata, topic_val, fmt, hook_angle)
