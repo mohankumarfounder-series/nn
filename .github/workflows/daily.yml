@@ -2,8 +2,8 @@ name: Daily Videos
 
 on:
   schedule:
-    - cron: "30 2 * * *"  # 08:00 IST   # 21:33 UTC = 03:03 IST
-    - cron: "30 14 * * *"  # 20:00 IST   # 14:03 UTC = 19:33 IST
+    - cron: "30 3 * * *"  # 09:00 IST — morning prime time
+    - cron: "30 15 * * *"  # 21:00 IST — evening prime time
   workflow_dispatch:
     inputs:
       topic:
@@ -37,7 +37,7 @@ env:
 jobs:
   generate:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
 
     steps:
       - uses: actions/checkout@v4
@@ -147,5 +147,5 @@ jobs:
             shorts/
             metadata/
             scripts/
-          retention-days: 14
+          retention-days: 1
           if-no-files-found: warn
