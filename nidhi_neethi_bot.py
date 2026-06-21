@@ -56,7 +56,7 @@ BEAT 4 — CLOSE (10 seconds):
 ━━━━━━━━━━━━━━━━━━━━━━━━━
 HARD RULES:
 1. {target_min_words}-{target_max_words} words exactly ({target_min_words}+ words mandatory)
-2. Pure Tamil speech — NO markdown, NO bullets, NO headers
+2. 100% தமிழ் மட்டும் — ஒரே ஒரு ஆங்கில வார்த்தை கூட வேண்டாம். 'video'→'வீடியோ', 'share'→'பகிருங்கள்', 'bank'→'வங்கி', 'loan'→'கடன்', 'savings'→'சேமிப்பு'
 3. Every sentence in natural spoken Tamil rhythm
 4. ONE real number or statistic (not invented)
 5. WhatsApp-ல் share பண்ண தோன்றும் level of usefulness
