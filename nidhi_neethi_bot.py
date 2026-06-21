@@ -110,6 +110,13 @@ from pathlib import Path
 
 import requests
 from bs4 import BeautifulSoup
+CROSS_PROMO_TEXT = """
+
+📺 எங்கள் மற்ற சேனல்கள்:
+🌱 உண்மை கதைகள் → youtube.com/@thulirstories
+🕉️ பக்தி வீடியோ → youtube.com/@aalayamani
+🚗 கார் செய்திகள் → youtube.com/@cartamiltv"""
+
 
 try:
     import google.genai as genai
