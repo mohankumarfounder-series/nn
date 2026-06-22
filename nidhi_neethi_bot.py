@@ -2886,7 +2886,14 @@ def get_authenticated_service():
 
     if b64:
         try:
-            creds = pickle.loads(base64.b64decode(b64))
+            raw = base64.b64decode(b64)
+            try:
+                creds = pickle.loads(raw)
+            except Exception:
+                # JSON format credential (from google auth export)
+                import json as _json
+                from google.oauth2.credentials import Credentials as _Creds
+                creds = _Creds.from_authorized_user_info(_json.loads(raw.decode("utf-8")))
         except Exception as e:
             log(f"  ⚠️ Token decode failed: {e}")
             return None
