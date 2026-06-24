@@ -163,7 +163,13 @@ SHORTS_DIR   = "shorts"
 METADATA_DIR = "metadata"
 SCRIPTS_DIR  = "scripts"
 PEXELS_DIR   = "pexels_images"
+PEXELS_VIDEOS_DIR = "pexels_videos"
 SUBS_DIR     = "subtitles"
+USE_STOCK_VIDEO = os.environ.get("USE_STOCK_VIDEO", "false").lower() in ("true", "1", "yes")
+MIN_STOCK_VIDEO_WIDTH = 720
+STOCK_SCENE_MAX_LONG = 12
+STOCK_SCENE_MAX_SHORT = 6
+SHORT_MAX_DURATION_SECONDS = 55.0
 QUEUE_FILE   = "upload_queue.json"
 
 YOUTUBE_SCOPES         = ["https://www.googleapis.com/auth/youtube",
@@ -931,6 +937,334 @@ def fetch_pexels_images(keyword, output_dir, count=5):
     return downloaded
 
 
+# ═══════════════════════════════════════════════════════════════
+# STOCK VIDEO — Pexels clips + beat-based scene planning
+# ═══════════════════════════════════════════════════════════════
+
+BEAT_WEIGHTS_LONG = [15, 60, 25, 10]
+BEAT_WEIGHTS_SHORT = [8, 25, 15, 7]
+BEAT_SCENE_COUNTS_LONG = [2, 5, 3, 2]
+BEAT_SCENE_COUNTS_SHORT = [1, 2, 2, 1]
+
+
+def _pick_pexels_video_file_url(video_files):
+    candidates = []
+    for file_info in video_files or []:
+        link = file_info.get("link")
+        width = int(file_info.get("width") or 0)
+        if link and width >= MIN_STOCK_VIDEO_WIDTH:
+            candidates.append((width, link))
+    if not candidates:
+        for file_info in video_files or []:
+            link = file_info.get("link")
+            if link:
+                return link
+        return None
+    candidates.sort(key=lambda item: item[0])
+    return candidates[len(candidates) // 2][1]
+
+
+def _download_stock_video_file(url, target_path):
+    try:
+        response = requests.get(url, timeout=120, stream=True)
+        if response.status_code != 200:
+            return False
+        with open(target_path, "wb") as handle:
+            for chunk in response.iter_content(8192):
+                handle.write(chunk)
+        return os.path.exists(target_path) and os.path.getsize(target_path) > 50_000
+    except Exception as exc:
+        log(f"  ⚠️ Stock video download failed: {exc}")
+        return False
+
+
+def _search_pexels_video_url(query, orientation, result_index):
+    if not PEXELS_API_KEY:
+        return None
+    headers = {"Authorization": PEXELS_API_KEY}
+    try:
+        response = requests.get(
+            "https://api.pexels.com/videos/search",
+            headers=headers,
+            params={
+                "query": query[:100],
+                "per_page": 15,
+                "orientation": orientation,
+                "size": "medium",
+            },
+            timeout=25,
+        )
+        if response.status_code != 200:
+            return None
+        videos = response.json().get("videos", [])
+        if not videos:
+            return None
+        chosen = videos[result_index % len(videos)]
+        return _pick_pexels_video_file_url(chosen.get("video_files", []))
+    except Exception as exc:
+        log(f"  ⚠️ Pexels video search failed ({query}): {exc}")
+        return None
+
+
+def fetch_pexels_videos(keyword, output_dir, count=5, orientation="landscape"):
+    """Download stock video clips from Pexels video API."""
+    if not PEXELS_API_KEY:
+        log("⚠️ PEXELS_API_KEY not set — stock video disabled")
+        return []
+
+    os.makedirs(output_dir, exist_ok=True)
+    queries = list(TOPIC_PEXELS_QUERIES.get(keyword, TOPIC_PEXELS_QUERIES["default"]))
+    import datetime as _dt
+    week_seed = int(_dt.datetime.now().strftime("%Y%W"))
+    _rng = __import__("random").Random(week_seed)
+    _rng.shuffle(queries)
+
+    downloaded = []
+    for scene_index in range(count):
+        target_path = os.path.join(
+            output_dir,
+            f"{orientation}_{scene_index}_{hashlib.md5(queries[scene_index % len(queries)].encode()).hexdigest()[:10]}.mp4",
+        )
+        if os.path.exists(target_path) and os.path.getsize(target_path) > 50_000:
+            downloaded.append(target_path)
+            continue
+
+        video_url = None
+        chosen_query = queries[scene_index % len(queries)]
+        for query_offset, query in enumerate(queries):
+            video_url = _search_pexels_video_url(
+                query,
+                orientation,
+                scene_index + query_offset,
+            )
+            if video_url:
+                chosen_query = query
+                break
+
+        if not video_url:
+            continue
+        if _download_stock_video_file(video_url, target_path):
+            downloaded.append(target_path)
+            log(f"  🎬 Pexels video scene {scene_index + 1} — {chosen_query} ({orientation})")
+
+    log(f"  ✅ {len(downloaded)} stock videos fetched ({orientation})")
+    return downloaded
+
+
+def plan_stock_scenes(total_duration_seconds, is_short=False):
+    """Map script beats to scene durations for stock video rendering."""
+    if is_short:
+        total_duration_seconds = min(float(total_duration_seconds), SHORT_MAX_DURATION_SECONDS)
+        weights = BEAT_WEIGHTS_SHORT
+        counts = BEAT_SCENE_COUNTS_SHORT
+        min_scene = 3.0
+    else:
+        weights = BEAT_WEIGHTS_LONG
+        counts = BEAT_SCENE_COUNTS_LONG
+        min_scene = 4.0
+
+    weight_sum = float(sum(weights))
+    scenes = []
+    scene_index = 0
+    for beat_index, (weight, scene_count) in enumerate(zip(weights, counts)):
+        beat_duration = total_duration_seconds * weight / weight_sum
+        scene_duration = max(beat_duration / scene_count, min_scene)
+        for _ in range(scene_count):
+            scenes.append({
+                "duration_seconds": scene_duration,
+                "beat_index": beat_index,
+                "query_index": scene_index,
+            })
+            scene_index += 1
+
+    planned_total = sum(scene["duration_seconds"] for scene in scenes)
+    if scenes and planned_total > 0:
+        scale = total_duration_seconds / planned_total
+        for scene in scenes:
+            scene["duration_seconds"] = max(scene["duration_seconds"] * scale, min_scene)
+
+    return scenes
+
+
+def probe_stock_video_duration(video_path):
+    result = run(
+        [
+            "ffprobe", "-v", "error", "-show_entries", "format=duration",
+            "-of", "csv=p=0", video_path,
+        ],
+        timeout=20,
+    )
+    if result.returncode != 0:
+        return 0.0
+    try:
+        return max(float(result.stdout.strip()), 0.1)
+    except ValueError:
+        return 0.0
+
+
+def validate_stock_video_clip(video_path):
+    if not video_path or not os.path.exists(video_path):
+        return False
+    if os.path.getsize(video_path) < 50_000:
+        return False
+    return probe_stock_video_duration(video_path) > 0.0
+
+
+def render_stock_scene(stock_video_path, scene_duration_seconds, width, height, output_path):
+    """Render one stock clip scaled/cropped to target resolution."""
+    if not validate_stock_video_clip(stock_video_path):
+        return False
+
+    stock_duration = probe_stock_video_duration(stock_video_path)
+    stream_loop = "-1" if stock_duration < scene_duration_seconds else "0"
+    video_filter = (
+        f"scale={width}:{height}:force_original_aspect_ratio=increase,"
+        f"crop={width}:{height},eq=contrast=1.05:saturation=1.08"
+    )
+    command = [
+        "ffmpeg", "-y", "-loglevel", "error",
+        "-stream_loop", stream_loop,
+        "-i", stock_video_path,
+        "-t", f"{scene_duration_seconds:.3f}",
+        "-vf", video_filter,
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
+        "-pix_fmt", "yuv420p", "-an", output_path,
+    ]
+    result = run(command, timeout=180)
+    return (
+        result.returncode == 0
+        and os.path.exists(output_path)
+        and os.path.getsize(output_path) > 10_000
+    )
+
+
+def render_ken_burns_single_scene(image_path, scene_duration_seconds, width, height, output_path, seed_index=0):
+    """Ken Burns fallback for a single scene when stock video is unavailable."""
+    if not os.path.exists(image_path):
+        return False
+
+    fps = 25
+    frame_count = max(int(scene_duration_seconds * fps), fps * 3)
+    z_expr, x_expr, y_expr, _label = KB_PRESETS[seed_index % len(KB_PRESETS)]
+    video_filter = (
+        f"scale={width}:{height}:force_original_aspect_ratio=increase,"
+        f"crop={width}:{height},"
+        f"zoompan=z='{z_expr}':x='{x_expr}':y='{y_expr}':d={frame_count}:fps={fps}:s={width}x{height}"
+    )
+    command = [
+        "ffmpeg", "-y", "-loglevel", "error",
+        "-loop", "1", "-i", image_path,
+        "-t", f"{scene_duration_seconds:.3f}",
+        "-vf", video_filter,
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
+        "-pix_fmt", "yuv420p", "-an", output_path,
+    ]
+    result = run(command, timeout=180)
+    return (
+        result.returncode == 0
+        and os.path.exists(output_path)
+        and os.path.getsize(output_path) > 10_000
+    )
+
+
+def build_stock_video(scenes, stock_videos, fallback_images, audio_path, width, height, output_path, output_name):
+    """Render per-scene stock clips (or Ken Burns fallback), concat, and mux audio."""
+    if not scenes:
+        return False
+    if not fallback_images:
+        return False
+
+    scene_clips = []
+    for scene_index, scene in enumerate(scenes):
+        clip_path = f"/tmp/{output_name}_stock_scene_{scene_index}.mp4"
+        stock_path = stock_videos[scene_index] if scene_index < len(stock_videos) else None
+        rendered = False
+        if stock_path and validate_stock_video_clip(stock_path):
+            rendered = render_stock_scene(
+                stock_path,
+                scene["duration_seconds"],
+                width,
+                height,
+                clip_path,
+            )
+        if not rendered:
+            fallback_image = fallback_images[scene_index % len(fallback_images)]
+            rendered = render_ken_burns_single_scene(
+                fallback_image,
+                scene["duration_seconds"],
+                width,
+                height,
+                clip_path,
+                seed_index=scene_index,
+            )
+        if not rendered:
+            log(f"  ❌ Failed to render scene {scene_index + 1}")
+            return False
+        scene_clips.append(clip_path)
+
+    concat_list_path = f"/tmp/{output_name}_stock_concat.txt"
+    with open(concat_list_path, "w", encoding="utf-8") as handle:
+        for clip_path in scene_clips:
+            handle.write(f"file '{clip_path}'\n")
+
+    silent_video_path = f"/tmp/{output_name}_stock_silent.mp4"
+    concat_result = run([
+        "ffmpeg", "-y", "-loglevel", "error",
+        "-f", "concat", "-safe", "0", "-i", concat_list_path,
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
+        "-pix_fmt", "yuv420p", silent_video_path,
+    ], timeout=300)
+    if concat_result.returncode != 0 or not os.path.exists(silent_video_path):
+        return False
+
+    mux_result = run([
+        "ffmpeg", "-y", "-loglevel", "error",
+        "-i", silent_video_path, "-i", audio_path,
+        "-c:v", "copy", "-c:a", "aac", "-ar", "44100", "-ac", "2",
+        "-shortest", "-movflags", "+faststart", output_path,
+    ], timeout=300)
+
+    for temp_path in scene_clips + [concat_list_path, silent_video_path]:
+        try:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+        except OSError:
+            pass
+
+    return mux_result.returncode == 0 and os.path.exists(output_path)
+
+
+def render_blur_pad_short_from_long(long_video_path, short_output_path):
+    """Legacy Short fallback — blur-pad reframe of the long video."""
+    blur_pad_filter = (
+        "[0:v]split=2[bg][fg];"
+        "[bg]scale=1080:1920:force_original_aspect_ratio=increase,"
+        "crop=1080:1920,boxblur=25:5[blurred];"
+        "[fg]scale=1080:607,"
+        "pad=1080:1920:0:(1920-607)/2:black[padded];"
+        "[blurred][padded]overlay=0:(H-h)/2"
+    )
+    result = run([
+        "ffmpeg", "-y", "-i", long_video_path, "-ss", "0",
+        "-t", str(SHORT_MAX_DURATION_SECONDS),
+        "-vf", blur_pad_filter,
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "26",
+        "-c:a", "aac", "-b:a", "128k",
+        "-movflags", "+faststart", short_output_path,
+    ], timeout=180)
+    if result.returncode == 0:
+        return True
+    run([
+        "ffmpeg", "-y", "-i", long_video_path, "-ss", "0",
+        "-t", str(SHORT_MAX_DURATION_SECONDS),
+        "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,"
+               "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "26",
+        "-c:a", "aac", short_output_path,
+    ], timeout=180)
+    return os.path.exists(short_output_path)
+
+
 def ensure_fallback_image():
     if not os.path.exists("image.png"):
         try:
@@ -1452,7 +1786,7 @@ def inject_pauses(text):
 
 def create_video(script_text, english_subtitles, images_input, output_name,
                  format_type="default", title_short="", bgm_path=None,
-                 source_citation="", topic_val=""):
+                 source_citation="", topic_val="", pexels_kw="default"):
     ensure_dirs()
     ensure_fallback_image()
 
@@ -1522,57 +1856,84 @@ def create_video(script_text, english_subtitles, images_input, output_name,
         audio = human_file
     total_dur = get_dur(audio)
 
-    log("🎬 Step 4/7 Video (Ken Burns)...")
+    log("🎬 Step 4/7 Video...")
     if isinstance(images_input, list):
         images = [f for f in images_input if os.path.exists(f)]
     else:
         images = []
 
     if not images and os.path.exists(OUTRO_FRAME):
-        images = [OUTRO_FRAME]   # use brand banner as fallback bg
+        images = [OUTRO_FRAME]
     elif not images and os.path.exists("image.png"):
         images = ["image.png"]
     if not images:
-        log("❌ No images"); return None
+        log("❌ No images")
+        return None
 
-    log(f"  Using {len(images)} images")
-    fps = 25
-    seed = int(hashlib.md5(output_name.encode()).hexdigest()[:8], 16)
-    total_frames = max(int(total_dur * fps), fps * 5)
-    num_inputs, vfilter, vlabel = build_video_filter(images, total_frames, fps, seed)
+    stock_video_rendered = False
+    if USE_STOCK_VIDEO and PEXELS_API_KEY:
+        log("  Stock video mode (landscape 1920x1080)...")
+        long_scenes = plan_stock_scenes(total_dur, is_short=False)
+        video_cache_dir = os.path.join(PEXELS_VIDEOS_DIR, "landscape", output_name)
+        landscape_videos = fetch_pexels_videos(
+            pexels_kw,
+            video_cache_dir,
+            count=len(long_scenes),
+            orientation="landscape",
+        )
+        stock_video_rendered = build_stock_video(
+            long_scenes,
+            landscape_videos,
+            images,
+            audio,
+            1920,
+            1080,
+            raw_file,
+            output_name,
+        )
+        if stock_video_rendered:
+            log(f"  ✅ Stock video rendered ({len(long_scenes)} scenes)")
+        else:
+            log("  ⚠️ Stock video failed — falling back to Ken Burns")
 
-    # Cinematic color grade: warmth + contrast + vignette (finance = trust/authority feel)
-    COLOR_GRADE = (
-        f"[{vlabel}]"
-        "eq=contrast=1.06:brightness=0.01:saturation=1.10,"
-        "colorbalance=rs=0.02:gs=0.01:bs=-0.03:rm=0.02:gm=0.01:bm=-0.02,"
-        "vignette=PI/5"
-        "[graded]"
-    )
-    full_filter = vfilter + ";" + COLOR_GRADE
-    out_label = "graded"
+    if not stock_video_rendered:
+        log(f"  Ken Burns mode — using {len(images)} images")
+        fps = 25
+        seed = int(hashlib.md5(output_name.encode()).hexdigest()[:8], 16)
+        total_frames = max(int(total_dur * fps), fps * 5)
+        num_inputs, vfilter, vlabel = build_video_filter(images, total_frames, fps, seed)
 
-    cmd = ["ffmpeg", "-y"]
-    for img in images:
-        cmd.extend(["-loop", "1", "-t", str(total_dur + 2), "-i", img])
-    cmd.extend(["-i", audio, "-filter_complex", full_filter,
-                "-map", f"[{out_label}]", "-map", f"{num_inputs}:a",
-                "-c:v", "libx264", "-preset", "medium", "-crf", "20",
-                "-pix_fmt", "yuv420p", "-c:a", "aac",
-                "-ar", "44100", "-ac", "2",
-                "-avoid_negative_ts", "make_zero", raw_file])
-    r = run(cmd, timeout=400)
-    if r.returncode != 0:
-        # Fallback single image
-        r = run(["ffmpeg", "-y", "-loop", "1", "-i", images[0], "-i", audio,
-                 "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,"
-                        "pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
-                 "-c:v", "libx264", "-preset", "medium", "-crf", "20",
-                 "-pix_fmt", "yuv420p", "-c:a", "aac",
-                  "-ar", "44100", "-ac", "2", raw_file],
-                timeout=300)
+        COLOR_GRADE = (
+            f"[{vlabel}]"
+            "eq=contrast=1.06:brightness=0.01:saturation=1.10,"
+            "colorbalance=rs=0.02:gs=0.01:bs=-0.03:rm=0.02:gm=0.01:bm=-0.02,"
+            "vignette=PI/5"
+            "[graded]"
+        )
+        full_filter = vfilter + ";" + COLOR_GRADE
+        out_label = "graded"
+
+        cmd = ["ffmpeg", "-y"]
+        for img in images:
+            cmd.extend(["-loop", "1", "-t", str(total_dur + 2), "-i", img])
+        cmd.extend(["-i", audio, "-filter_complex", full_filter,
+                    "-map", f"[{out_label}]", "-map", f"{num_inputs}:a",
+                    "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+                    "-pix_fmt", "yuv420p", "-c:a", "aac",
+                    "-ar", "44100", "-ac", "2",
+                    "-avoid_negative_ts", "make_zero", raw_file])
+        r = run(cmd, timeout=400)
         if r.returncode != 0:
-            log("❌ Video encoding failed"); return None
+            r = run(["ffmpeg", "-y", "-loop", "1", "-i", images[0], "-i", audio,
+                     "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,"
+                            "pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
+                     "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+                     "-pix_fmt", "yuv420p", "-c:a", "aac",
+                     "-ar", "44100", "-ac", "2", raw_file],
+                    timeout=300)
+            if r.returncode != 0:
+                log("❌ Video encoding failed")
+                return None
 
     log("✍️  Step 5/7 Text overlays...")
     overlay_filter = build_text_overlay(title_short, format_type)
@@ -1701,29 +2062,103 @@ def create_video(script_text, english_subtitles, images_input, output_name,
             if os.path.exists(f): os.remove(f)
         except: pass
 
-    log("📱 Step 8/8 Shorts (9:16 reframe)...")
-    # ── Proper 9:16 reframe with blur-pad (no black bars, no crop cutoff) ──
-    _vf = (
-        "[0:v]split=2[bg][fg];"
-        "[bg]scale=1080:1920:force_original_aspect_ratio=increase,"
-        "crop=1080:1920,boxblur=25:5[blurred];"
-        "[fg]scale=1080:607,"
-        "pad=1080:1920:0:(1920-607)/2:black[padded];"
-        "[blurred][padded]overlay=0:(H-h)/2"
-    )
-    _r = run(["ffmpeg", "-y", "-i", video_file, "-ss", "0", "-t", "55",
-         "-vf", _vf,
-         "-c:v", "libx264", "-preset", "veryfast", "-crf", "26",
-         "-c:a", "aac", "-b:a", "128k",
-         "-movflags", "+faststart",
-         short_file], timeout=180)
-    if _r.returncode != 0:
-        # Fallback: simple pad (black bars) — correct orientation, safe
-        run(["ffmpeg", "-y", "-i", video_file, "-ss", "0", "-t", "55",
-             "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,"
-                    "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black",
-             "-c:v", "libx264", "-preset", "veryfast", "-crf", "26",
-             "-c:a", "aac", short_file], timeout=180)
+    log("📱 Step 8/8 Shorts (native 9:16 portrait stock)...")
+    short_audio_file = f"/tmp/{output_name}_short_audio.mp3"
+    short_raw_file = f"/tmp/{output_name}_short_raw.mp4"
+    short_working_file = f"/tmp/{output_name}_short_working.mp4"
+    short_rendered = False
+
+    run([
+        "ffmpeg", "-y", "-i", audio,
+        "-t", str(SHORT_MAX_DURATION_SECONDS),
+        "-c:a", "aac", "-ar", "44100", "-ac", "2",
+        short_audio_file,
+    ], timeout=60)
+    short_dur = get_dur(short_audio_file) if os.path.exists(short_audio_file) else SHORT_MAX_DURATION_SECONDS
+
+    if USE_STOCK_VIDEO and PEXELS_API_KEY and os.path.exists(short_audio_file):
+        short_scenes = plan_stock_scenes(short_dur, is_short=True)
+        portrait_cache_dir = os.path.join(PEXELS_VIDEOS_DIR, "portrait", output_name)
+        portrait_videos = fetch_pexels_videos(
+            pexels_kw,
+            portrait_cache_dir,
+            count=len(short_scenes),
+            orientation="portrait",
+        )
+        short_rendered = build_stock_video(
+            short_scenes,
+            portrait_videos,
+            images,
+            short_audio_file,
+            1080,
+            1920,
+            short_raw_file,
+            f"{output_name}_short",
+        )
+
+    if short_rendered and os.path.exists(short_raw_file):
+        hooks = {
+            "warning":    "MUST WATCH before you apply for a loan",
+            "explainer":  "Complete guide explained in Tamil",
+            "rights":     "Know your legal rights — explained in Tamil",
+            "comparison": "Which is better? Find out in Tamil",
+            "story":      "Real story — what happened and what you can learn",
+            "news":       "Breaking finance news explained in Tamil",
+        }
+        hook_phrase = hooks.get(format_type, "Tamil finance guide")
+        safe_hook = hook_phrase.replace("'", "").replace(":", " -")
+        short_hook_filter = (
+            f"drawtext=fontfile=/usr/share/fonts/truetype/noto/NotoSansTamil-Regular.ttf:text='{safe_hook}':"
+            f"fontsize=24:fontcolor=yellow@0.95:x=(w-tw)/2:y=80:"
+            f"shadowcolor=black@0.9:shadowx=2:shadowy=2:"
+            f"enable='between(t,0,5)'"
+        )
+        run([
+            "ffmpeg", "-y", "-i", short_raw_file,
+            "-vf", short_hook_filter,
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "24",
+            "-c:a", "copy", short_working_file,
+        ], timeout=120)
+        short_base = short_working_file if os.path.exists(short_working_file) else short_raw_file
+
+        short_srt_created = False
+        if english_subtitles:
+            short_srt_file = f"{SUBS_DIR}/{output_name}_short.srt"
+            short_srt_path = generate_srt(english_subtitles, short_dur, short_srt_file)
+            if short_srt_path:
+                r_short_subs = run([
+                    "ffmpeg", "-y", "-i", short_base,
+                    "-vf", f"subtitles={short_srt_path}:force_style='"
+                           "FontName=Arial,FontSize=32,"
+                           "PrimaryColour=&H00FFFFFF,"
+                           "OutlineColour=&H00000000,"
+                           "BackColour=&H80000000,"
+                           "Bold=1,Outline=3,Shadow=1,"
+                           "Alignment=2,MarginV=120'",
+                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "24",
+                    "-c:a", "copy", "-movflags", "+faststart", short_file,
+                ], timeout=180)
+                short_srt_created = r_short_subs.returncode == 0
+
+        if not short_srt_created:
+            shutil.copy(short_base, short_file)
+
+        if os.path.exists(LOGO_WATERMARK) and os.path.exists(short_file):
+            short_wm_file = f"/tmp/{output_name}_short_wm.mp4"
+            r_short_wm = run([
+                "ffmpeg", "-y", "-i", short_file, "-i", LOGO_WATERMARK,
+                "-filter_complex", "overlay=W-110:H-110:format=auto",
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "24",
+                "-c:a", "copy", "-movflags", "+faststart", short_wm_file,
+            ], timeout=120)
+            if r_short_wm.returncode == 0:
+                shutil.move(short_wm_file, short_file)
+
+        short_mb = os.path.getsize(short_file) / (1024 * 1024) if os.path.exists(short_file) else 0
+        log(f"  ✅ Native portrait Short: {short_file} ({short_mb:.1f}MB)")
+    else:
+        log("  ⚠️ Portrait stock Short failed — using blur-pad reframe fallback")
+        render_blur_pad_short_from_long(video_file, short_file)
     mb = os.path.getsize(video_file) / (1024*1024) if os.path.exists(video_file) else 0
     log(f"  ✅ {video_file} ({mb:.1f}MB)")
 
@@ -4101,6 +4536,7 @@ def process_video(topic=None, format_type=None, upload=False, privacy="public"):
         bgm_path=bgm_path,
         source_citation=source_citation,
         topic_val=topic_val,
+        pexels_kw=pexels_kw,
     )
 
     elapsed = time.time() - t_start
