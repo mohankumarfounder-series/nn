@@ -165,6 +165,7 @@ SCRIPTS_DIR  = "scripts"
 PEXELS_DIR   = "pexels_images"
 PEXELS_VIDEOS_DIR = "pexels_videos"
 SUBS_DIR     = "subtitles"
+THUMBNAIL_DIR = "thumbnails"
 USE_STOCK_VIDEO = os.environ.get("USE_STOCK_VIDEO", "false").lower() in ("true", "1", "yes")
 MIN_STOCK_VIDEO_WIDTH = 720
 STOCK_SCENE_MAX_LONG = 12
@@ -286,6 +287,14 @@ TOPIC_PEXELS_QUERIES = {
                       "financial success india", "happy indian family"],
     "news":          ["rbi india", "government india finance", "budget india",
                       "indian economy", "tax india"],
+    "banking":       ["indian bank customer service", "bank account statement india",
+                      "atm machine india", "bank branch india", "online banking india"],
+    "tax":           ["income tax india", "tax filing india", "gst india",
+                      "tax documents india", "calculator finance india"],
+    "credit":        ["credit score india", "cibil report india", "credit card india",
+                      "loan approval india", "financial documents india"],
+    "insurance":     ["insurance claim india", "health insurance india",
+                      "insurance documents india", "family insurance india"],
     "default":       ["indian finance professional", "business india", "money india",
                       "savings india", "bank india"],
 }
@@ -574,6 +583,11 @@ def run(cmd, timeout=300):
     return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
 
 
+def encode_timeout_seconds():
+    """FFmpeg encode timeout — CI runners need more headroom for 3-min 1080p burns."""
+    return 600 if os.environ.get("GITHUB_ACTIONS", "").lower() == "true" else 300
+
+
 def log(msg):
     print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {msg}")
 
@@ -589,7 +603,7 @@ def get_dur(f):
 
 def ensure_dirs():
     for d in [OUTPUT_DIR, SHORTS_DIR, METADATA_DIR, SCRIPTS_DIR,
-              PEXELS_DIR, SUBS_DIR]:
+              PEXELS_DIR, PEXELS_VIDEOS_DIR, SUBS_DIR, THUMBNAIL_DIR]:
         os.makedirs(d, exist_ok=True)
 
 
@@ -1086,7 +1100,29 @@ def plan_stock_scenes(total_duration_seconds, is_short=False):
     return scenes
 
 
-def probe_stock_video_duration(video_path):
+def cap_stock_scenes_for_ci(scenes):
+    """Merge to 8 scenes on CI — faster encodes, same total duration."""
+    if os.environ.get("GITHUB_ACTIONS", "").lower() != "true":
+        return scenes
+    scene_limit = 8
+    if len(scenes) <= scene_limit:
+        return scenes
+
+    total_seconds = sum(scene["duration_seconds"] for scene in scenes)
+    target_duration = round(total_seconds / scene_limit, 2)
+    capped = []
+    for index in range(scene_limit):
+        source = scenes[min(index, len(scenes) - 1)]
+        capped.append({
+            "duration_seconds": target_duration,
+            "beat_index": source.get("beat_index", index % 4),
+            "query_index": index,
+        })
+    if capped:
+        capped[-1]["duration_seconds"] = round(
+            total_seconds - target_duration * (scene_limit - 1), 2
+        )
+    return capped
     result = run(
         [
             "ffprobe", "-v", "error", "-show_entries", "format=duration",
@@ -1873,7 +1909,7 @@ def create_video(script_text, english_subtitles, images_input, output_name,
     stock_video_rendered = False
     if USE_STOCK_VIDEO and PEXELS_API_KEY:
         log("  Stock video mode (landscape 1920x1080)...")
-        long_scenes = plan_stock_scenes(total_dur, is_short=False)
+        long_scenes = cap_stock_scenes_for_ci(plan_stock_scenes(total_dur, is_short=False))
         video_cache_dir = os.path.join(PEXELS_VIDEOS_DIR, "landscape", output_name)
         landscape_videos = fetch_pexels_videos(
             pexels_kw,
@@ -1935,34 +1971,51 @@ def create_video(script_text, english_subtitles, images_input, output_name,
                 log("❌ Video encoding failed")
                 return None
 
-    log("✍️  Step 5/7 Text overlays...")
+    encode_timeout = encode_timeout_seconds()
+    log("✍️  Step 5/7 Text overlays + English subtitles...")
     overlay_filter = build_text_overlay(title_short, format_type)
-    r = run(["ffmpeg", "-y", "-i", raw_file,
-             "-vf", overlay_filter,
-             "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-             "-c:a", "copy", "-movflags", "+faststart", overlay_file], timeout=200)
-    working = overlay_file if r.returncode == 0 else raw_file
-
-    log("📝 Step 6/7 English subtitles...")
+    video_filters = [overlay_filter] if overlay_filter else []
     srt_created = False
+    srt_path = None
+
     if english_subtitles:
         srt_path = generate_srt(english_subtitles, total_dur, srt_file)
         if srt_path:
-            r = run(["ffmpeg", "-y", "-i", working,
-                     "-vf", f"subtitles={srt_path}:force_style='"
-                            "FontName=Arial,FontSize=28,"
-                            "PrimaryColour=&H00FFFFFF,"
-                            "OutlineColour=&H00000000,"
-                            "BackColour=&H80000000,"
-                            "Bold=1,Outline=3,Shadow=1,"
-                            "Alignment=2,MarginV=60'",
-                     "-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
-                     "-c:a", "copy", "-movflags", "+faststart", video_file], timeout=200)
-            if r.returncode == 0:
-                srt_created = True
-                log("  ✅ English subtitles burned in")
-    if not srt_created:
-        shutil.copy(working, video_file)
+            srt_created = True
+            escaped_srt = srt_path.replace(":", "\\:").replace("'", "\\'")
+            video_filters.append(
+                f"subtitles={escaped_srt}:force_style='"
+                "FontName=Arial,FontSize=28,"
+                "PrimaryColour=&H00FFFFFF,"
+                "OutlineColour=&H00000000,"
+                "BackColour=&H80000000,"
+                "Bold=1,Outline=3,Shadow=1,"
+                "Alignment=2,MarginV=60'"
+            )
+
+    working = raw_file
+    if video_filters:
+        combined_vf = ",".join(video_filters)
+        r = run(["ffmpeg", "-y", "-i", raw_file,
+                 "-vf", combined_vf,
+                 "-c:v", "libx264", "-preset", "ultrafast", "-crf", "21",
+                 "-c:a", "copy", "-movflags", "+faststart", video_file],
+                timeout=encode_timeout)
+        if r.returncode == 0:
+            working = video_file
+            if srt_created:
+                log("  ✅ Text overlays + English subtitles burned in (single pass)")
+            else:
+                log("  ✅ Text overlays burned in")
+        else:
+            log(f"  ⚠️ Overlay/subtitle pass failed: {r.stderr[-200:] if r.stderr else 'unknown'}")
+            shutil.copy(raw_file, video_file)
+            working = video_file
+    else:
+        shutil.copy(raw_file, video_file)
+
+    if not srt_created and english_subtitles:
+        log("  ⚠️ SRT generation failed — video has no burned English subtitles")
 
     log("🔤 Step 7/8 Source citation + bilingual hook (single pass)...")
 
@@ -2000,10 +2053,10 @@ def create_video(script_text, english_subtitles, images_input, output_name,
     r_combined = run([
         "ffmpeg", "-y", "-i", video_file,
         "-vf", combined_vf,
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "21",
         "-c:a", "copy",   # audio copy — no drift here
         combined_file
-    ], timeout=200)
+    ], timeout=encode_timeout)
 
     if r_combined.returncode == 0 and os.path.exists(combined_file):
         shutil.move(combined_file, video_file)
@@ -2077,7 +2130,7 @@ def create_video(script_text, english_subtitles, images_input, output_name,
     short_dur = get_dur(short_audio_file) if os.path.exists(short_audio_file) else SHORT_MAX_DURATION_SECONDS
 
     if USE_STOCK_VIDEO and PEXELS_API_KEY and os.path.exists(short_audio_file):
-        short_scenes = plan_stock_scenes(short_dur, is_short=True)
+        short_scenes = cap_stock_scenes_for_ci(plan_stock_scenes(short_dur, is_short=True))
         portrait_cache_dir = os.path.join(PEXELS_VIDEOS_DIR, "portrait", output_name)
         portrait_videos = fetch_pexels_videos(
             pexels_kw,
@@ -2691,7 +2744,7 @@ def add_source_overlay(video_in, video_out, source_text, total_dur):
     r = run(["ffmpeg", "-y", "-i", video_in,
              "-vf", vf,
              "-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
-             "-c:a", "copy", video_out], timeout=200)
+             "-c:a", "copy", video_out], timeout=encode_timeout_seconds())
     if r.returncode == 0:
         log(f"  ✅ Source citation: {source_text}")
         return True
@@ -2734,7 +2787,7 @@ def add_bilingual_hook_overlay(video_in, video_out, topic, format_type):
     r = run(["ffmpeg", "-y", "-i", video_in,
              "-vf", vf,
              "-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
-             "-c:a", "copy", video_out], timeout=200)
+             "-c:a", "copy", video_out], timeout=encode_timeout_seconds())
     if r.returncode == 0:
         log(f"  ✅ Bilingual hook: {hook_phrase}")
         return True
@@ -4366,6 +4419,8 @@ def process_video(topic=None, format_type=None, upload=False, privacy="public"):
     fmt           = config["format"]
     pexels_kw     = config.get("pexels_keyword", "default")
     _tl2 = topic_val.lower()
+    if pexels_kw == "default" and fmt in TOPIC_PEXELS_QUERIES:
+        pexels_kw = fmt
     if any(w in _tl2 for w in ["refund","return","complaint","online order","damaged"]):
         pexels_kw = "ecommerce_complaint"
     elif any(w in _tl2 for w in ["emi","loan","கடன்"]):
@@ -4380,6 +4435,8 @@ def process_video(topic=None, format_type=None, upload=False, privacy="public"):
         pexels_kw = "investment"
     elif any(w in _tl2 for w in ["fraud","scam","cyber","மோசடி"]):
         pexels_kw = "warning"
+    elif any(w in _tl2 for w in ["வங்கி", "bank", "account", "கணக்க", "கட்டண", "charge", "fee", "atm", "debit", "savings", "சேமிப்பு"]):
+        pexels_kw = "banking"
     elif any(w in _tl2 for w in ["court","rights","உரிமை","legal"]):
         pexels_kw = "rights"
     hook_angle    = config.get("hook_angle", "")
