@@ -1126,6 +1126,7 @@ def cap_stock_scenes_for_ci(scenes):
 
 
 def probe_stock_video_duration(video_path):
+    """Use ffprobe to get duration of a stock video. Returns 0.0 on failure."""
     result = run(
         [
             "ffprobe", "-v", "error", "-show_entries", "format=duration",
@@ -3360,6 +3361,80 @@ def load_analytics_insights():
 # YOUTUBE AUTH & UPLOAD
 # ═══════════════════════════════════════════════════════════════
 
+def _save_refreshed_token(creds):
+    """Persist refreshed credentials back to pickle file AND update GitHub secret."""
+    import pickle, base64, json as _json
+
+    # 1. Always write to local pickle (used by current run and local dev)
+    try:
+        with open("youtube_token.pickle", "wb") as f:
+            pickle.dump(creds, f)
+    except Exception as e:
+        log(f"  ⚠️ Could not save token to pickle: {e}")
+
+    # 2. Push updated base64 back to GitHub Actions secret so next run works
+    gh_token = os.environ.get("GITHUB_TOKEN", "") or os.environ.get("GH_PAT_TOKEN", "")
+    repo = os.environ.get("GITHUB_REPOSITORY", "")
+    if not gh_token or not repo:
+        return  # local dev — skip
+
+    try:
+        new_b64 = base64.b64encode(pickle.dumps(creds)).decode("ascii")
+
+        # Get repo public key for secret encryption
+        pk_resp = requests.get(
+            f"https://api.github.com/repos/{repo}/actions/secrets/public-key",
+            headers={"Authorization": f"token {gh_token}", "Accept": "application/vnd.github.v3+json"},
+            timeout=10,
+        )
+        if pk_resp.status_code != 200:
+            log(f"  ⚠️ Could not get repo public key: {pk_resp.status_code}")
+            return
+
+        pk_data = pk_resp.json()
+        key_id = pk_data["key_id"]
+        pub_key = pk_data["key"]
+
+        # Encrypt using libsodium (PyNaCl)
+        try:
+            from nacl.public import PublicKey, SealedBox
+            from nacl.encoding import Base64Encoder
+            sealed = SealedBox(PublicKey(pub_key, encoder=Base64Encoder))
+            encrypted = base64.b64encode(sealed.encrypt(new_b64.encode())).decode()
+        except ImportError:
+            # PyNaCl not installed — fall back to subprocess with openssl
+            import subprocess, tempfile
+            pub_bytes = base64.b64decode(pub_key)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pub") as tf:
+                tf.write(pub_bytes)
+                pubkey_path = tf.name
+            result = subprocess.run(
+                ["python3", "-c",
+                 f"import base64; from nacl.public import PublicKey, SealedBox; from nacl.encoding import Base64Encoder; "
+                 f"box=SealedBox(PublicKey('{pub_key}',encoder=Base64Encoder)); "
+                 f"print(base64.b64encode(box.encrypt('{new_b64}'.encode())).decode())"],
+                capture_output=True, text=True, timeout=10
+            )
+            if result.returncode != 0:
+                log("  ⚠️ Token re-encryption failed — PyNaCl not available")
+                return
+            encrypted = result.stdout.strip()
+
+        # Update the secret
+        put_resp = requests.put(
+            f"https://api.github.com/repos/{repo}/actions/secrets/YOUTUBE_TOKEN_BASE64",
+            headers={"Authorization": f"token {gh_token}", "Accept": "application/vnd.github.v3+json"},
+            json={"encrypted_value": encrypted, "key_id": key_id},
+            timeout=10,
+        )
+        if put_resp.status_code in (201, 204):
+            log("  ✅ GitHub secret YOUTUBE_TOKEN_BASE64 auto-updated with refreshed token")
+        else:
+            log(f"  ⚠️ Failed to update GitHub secret: {put_resp.status_code}")
+    except Exception as e:
+        log(f"  ⚠️ Auto-secret-update failed: {e}")
+
+
 def get_authenticated_service():
     """Build YouTube API service with auto scope-refresh."""
     import pickle, base64, os
@@ -3404,6 +3479,8 @@ def get_authenticated_service():
         try:
             creds.refresh(Request())
             log("  ✅ Token refreshed")
+            # ── Save refreshed token back so next run doesn't expire ──
+            _save_refreshed_token(creds)
         except Exception as e:
             log(f"  ⚠️ Token refresh failed: {e}")
             return None
