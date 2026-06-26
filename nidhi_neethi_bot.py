@@ -1257,11 +1257,47 @@ def build_stock_video(scenes, stock_videos, fallback_images, audio_path, width, 
     if concat_result.returncode != 0 or not os.path.exists(silent_video_path):
         return False
 
+    # Probe audio duration to ensure video is long enough
+    probe = run([
+        "ffprobe", "-v", "error", "-show_entries", "format=duration",
+        "-of", "csv=p=0", audio_path,
+    ], timeout=15)
+    try:
+        audio_dur = float(probe.stdout.strip())
+    except (ValueError, AttributeError):
+        audio_dur = None
+
+    # If video is shorter than audio, loop-extend it with tpad
+    # Use -shortest only if audio is the shorter stream
+    if audio_dur:
+        video_dur_probe = run([
+            "ffprobe", "-v", "error", "-show_entries", "format=duration",
+            "-of", "csv=p=0", silent_video_path,
+        ], timeout=15)
+        try:
+            video_dur = float(video_dur_probe.stdout.strip())
+        except (ValueError, AttributeError):
+            video_dur = 0.0
+
+        if video_dur < audio_dur - 0.5:
+            # Extend video with freeze-frame padding to match audio
+            padded_video = silent_video_path.replace(".mp4", "_padded.mp4")
+            pad_dur = audio_dur - video_dur + 1.0
+            run([
+                "ffmpeg", "-y", "-loglevel", "error",
+                "-i", silent_video_path,
+                "-vf", f"tpad=stop_mode=clone:stop_duration={pad_dur:.3f}",
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
+                "-pix_fmt", "yuv420p", "-an", padded_video,
+            ], timeout=120)
+            if os.path.exists(padded_video) and os.path.getsize(padded_video) > 10_000:
+                os.replace(padded_video, silent_video_path)
+
     mux_result = run([
         "ffmpeg", "-y", "-loglevel", "error",
         "-i", silent_video_path, "-i", audio_path,
         "-c:v", "copy", "-c:a", "aac", "-ar", "44100", "-ac", "2",
-        "-shortest", "-movflags", "+faststart", output_path,
+        "-movflags", "+faststart", output_path,
     ], timeout=300)
 
     for temp_path in scene_clips + [concat_list_path, silent_video_path]:
