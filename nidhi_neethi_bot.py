@@ -1126,7 +1126,6 @@ def cap_stock_scenes_for_ci(scenes):
 
 
 def probe_stock_video_duration(video_path):
-    """Use ffprobe to get duration of a stock video. Returns 0.0 on failure."""
     result = run(
         [
             "ffprobe", "-v", "error", "-show_entries", "format=duration",
