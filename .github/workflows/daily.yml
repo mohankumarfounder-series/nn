@@ -115,6 +115,12 @@ jobs:
           echo "=== Shorts ===" && ls -lh shorts/ 2>/dev/null || echo "none"
           echo "=== Log tail ===" && tail -20 /tmp/bot.log 2>/dev/null || true
 
+      - name: Save log for artifact
+        if: always()
+        run: |
+          mkdir -p logs
+          cp /tmp/bot.log logs/bot.log 2>/dev/null || echo "(no log)" > logs/bot.log
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -124,5 +130,6 @@ jobs:
             shorts/
             metadata/
             scripts/
-          retention-days: 1
+            logs/
+          retention-days: 3
           if-no-files-found: ignore
