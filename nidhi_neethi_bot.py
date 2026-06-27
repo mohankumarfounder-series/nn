@@ -580,7 +580,15 @@ XFADE_TRANSITIONS = [
 # ═══════════════════════════════════════════════════════════════
 
 def run(cmd, timeout=300):
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        log(f"  ⚠️ Command timed out after {timeout}s: {cmd[0]} {cmd[1] if len(cmd)>1 else ''}")
+        # Return a fake failed result so callers handle it gracefully
+        r = subprocess.CompletedProcess(cmd, returncode=1)
+        r.stdout = ""
+        r.stderr = f"TimeoutExpired after {timeout}s"
+        return r
 
 
 def encode_timeout_seconds():
@@ -1281,17 +1289,23 @@ def build_stock_video(scenes, stock_videos, fallback_images, audio_path, width, 
 
         if video_dur < audio_dur - 0.5:
             # Extend video with freeze-frame padding to match audio
-            padded_video = silent_video_path.replace(".mp4", "_padded.mp4")
-            pad_dur = audio_dur - video_dur + 1.0
-            run([
-                "ffmpeg", "-y", "-loglevel", "error",
-                "-i", silent_video_path,
-                "-vf", f"tpad=stop_mode=clone:stop_duration={pad_dur:.3f}",
-                "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
-                "-pix_fmt", "yuv420p", "-an", padded_video,
-            ], timeout=120)
-            if os.path.exists(padded_video) and os.path.getsize(padded_video) > 10_000:
-                os.replace(padded_video, silent_video_path)
+            try:
+                padded_video = silent_video_path.replace(".mp4", "_padded.mp4")
+                pad_dur = audio_dur - video_dur + 1.0
+                r_tpad = run([
+                    "ffmpeg", "-y", "-loglevel", "error",
+                    "-i", silent_video_path,
+                    "-vf", f"tpad=stop_mode=clone:stop_duration={pad_dur:.3f}",
+                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
+                    "-pix_fmt", "yuv420p", "-an", padded_video,
+                ], timeout=180)
+                if r_tpad.returncode == 0 and os.path.exists(padded_video) and os.path.getsize(padded_video) > 10_000:
+                    os.replace(padded_video, silent_video_path)
+                    log(f"  ✅ Video padded to match audio ({pad_dur:.1f}s added)")
+                else:
+                    log(f"  ⚠️ tpad failed (rc={r_tpad.returncode}) — muxing as-is")
+            except Exception as e:
+                log(f"  ⚠️ tpad exception: {e} — muxing as-is")
 
     mux_result = run([
         "ffmpeg", "-y", "-loglevel", "error",
