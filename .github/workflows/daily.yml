@@ -115,6 +115,18 @@ jobs:
           echo "=== Shorts ===" && ls -lh shorts/ 2>/dev/null || echo "none"
           echo "=== Log tail ===" && tail -20 /tmp/bot.log 2>/dev/null || true
 
+      - name: Persist video series + topic history
+        if: always()
+        run: |
+          git config user.name  "Nidhi Neethi Bot"
+          git config user.email "bot@nidhineethitamil.com"
+          git add -f video_series.json 2>/dev/null || true
+          git add -f used_topics.txt 2>/dev/null || true
+          git status --short
+          git diff --staged --quiet || git commit -m "chore: update series data [skip ci]"
+          git push || true
+          echo "Persisted"
+
       - name: Save log for artifact
         if: always()
         run: |
