@@ -122,6 +122,7 @@ jobs:
           git config user.email "bot@nidhineethitamil.com"
           git add -f video_series.json 2>/dev/null || true
           git add -f used_topics.txt 2>/dev/null || true
+          git add -f upload_error.log 2>/dev/null || true
           git status --short
           git diff --staged --quiet || git commit -m "chore: update series data [skip ci]"
           git push || true
