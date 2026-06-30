@@ -3522,6 +3522,11 @@ def get_authenticated_service():
 
     if not creds:
         log("  ⚠️ No YouTube credentials found")
+        try:
+            with open("upload_error.log", "a", encoding="utf-8") as _ef:
+                _ef.write("AUTH ERROR: No YouTube credentials found (token decode/load failed)\n")
+        except Exception:
+            pass
         return None
 
     # Refresh if expired
@@ -3533,6 +3538,11 @@ def get_authenticated_service():
             _save_refreshed_token(creds)
         except Exception as e:
             log(f"  ⚠️ Token refresh failed: {e}")
+            try:
+                with open("upload_error.log", "a", encoding="utf-8") as _ef:
+                    _ef.write(f"AUTH ERROR: Token refresh failed: {e}\n")
+            except Exception:
+                pass
             return None
 
     # Check if force-ssl scope is present (needed for comments)
@@ -3544,6 +3554,11 @@ def get_authenticated_service():
 
     if not creds.valid:
         log("  ⚠️ Token invalid and cannot be refreshed — re-run auth setup")
+        try:
+            with open("upload_error.log", "a", encoding="utf-8") as _ef:
+                _ef.write("AUTH ERROR: Token invalid and refresh did not fix it — needs full re-auth\n")
+        except Exception:
+            pass
         return None
 
     try:
@@ -4201,6 +4216,14 @@ def upload_to_youtube(video_path, metadata, privacy="public"):
             queue_for_retry(video_path, metadata, privacy)
         else:
             log(f"❌ Upload failed: {err[:150]}")
+        # Persist full error to repo-tracked file so it survives past the ephemeral CI run
+        try:
+            import datetime as _dt
+            with open("upload_error.log", "a", encoding="utf-8") as _ef:
+                _ef.write(f"[{_dt.datetime.now().isoformat()}] UPLOAD ERROR: {err}\n")
+                _ef.write(f"  Topic: {metadata.get('topic','')}\n\n")
+        except Exception:
+            pass
         return None
 
 
